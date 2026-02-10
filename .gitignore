@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Model files and data (大文件，不上传)
+models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.h5
+data/
+data1/
+cache/
+checkpoints/
+
+# Datasets (大文件)
+*.arrow
+*.parquet
+
+# Logs and outputs (训练日志)
+*.log
+eval_output*.log
+inference_output*.log
+tensorboard.log
+
+# 保留重要的训练和评估日志
+!training_output*.txt
+!eval_output*.txt
+!passkey_*.txt
+
+# 允许保留重要的文档txt（requirements.txt等）
+!requirements.txt
+!README*.txt
+
+# Temporary files
+*.tmp
+*.temp
+example.txt
+uc?export=*
+
+# OS
+.DS_Store
+Thumbs.db

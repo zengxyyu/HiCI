@@ -1,0 +1,50 @@
+Label: The future of sustainable agriculture, Predict: ['the'], prompt length: 6446
+Label: The impact of technology on privacy and security, Predict: ['the'], prompt length: 6453
+Label: The effects of climate change on ocean ecosystems, Predict: ['the'], prompt length: 6122
+Label: The role of sports in society, Predict: ['the'], prompt length: 6237
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6166
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 6664
+Label: The impact of technology on human connection, Predict: ['the'], prompt length: 6514
+Label: The benefits of reading for pleasure, Predict: ['the,,,,,,,,,'], prompt length: 6521
+Label: The role of sports in society, Predict: ['the,'], prompt length: 6263
+Label: The history and culture of ancient civilizations, Predict: ['the'], prompt length: 5952
+Label: The future of renewable energy storage, Predict: ['the'], prompt length: 6568
+Label: The benefits of spending time in nature, Predict: ['the'], prompt length: 6375
+Label: The role of art in society, Predict: ['the'], prompt length: 6580
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 6477
+Label: The role of sports in society, Predict: ['the'], prompt length: 6536
+Label: The history and culture of the Middle Ages, Predict: ['the'], prompt length: 6313
+Label: The benefits of mindfulness meditation, Predict: ['the'], prompt length: 6308
+Label: The benefits of a plant-based diet, Predict: ['the,,,,,,,'], prompt length: 6428
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6400
+Label: The benefits of a plant-based diet, Predict: ['the'], prompt length: 6257
+Label: The benefits of regular exercise, Predict: ['the'], prompt length: 6171
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 6589
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 6474
+Label: The benefits of volunteering, Predict: ['the'], prompt length: 6268
+Label: The future of sustainable agriculture, Predict: ['the'], prompt length: 6398
+Label: The history and culture of the Middle Ages, Predict: ['the'], prompt length: 6353
+Label: The psychology of happiness, Predict: ['the'], prompt length: 6296
+Label: The benefits of reading for pleasure, Predict: ['the'], prompt length: 6425
+Label: The history and culture of the Middle Ages, Predict: ['the'], prompt length: 6706
+Label: The history and culture of ancient civilizations, Predict: ['the'], prompt length: 6136
+Label: The effects of air pollution on human health, Predict: ['the'], prompt length: 6480
+Label: The benefits of volunteering, Predict: ['the'], prompt length: 6310
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 6384
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 6153
+Label: The future of sustainable agriculture, Predict: ['the'], prompt length: 6112
+Label: The benefits of a plant-based diet, Predict: ['the'], prompt length: 6130
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6603
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6066
+Label: The impact of technology on human connection, Predict: ['the'], prompt length: 6268
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6366
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 6312
+Label: The psychology of happiness, Predict: ['the'], prompt length: 6388
+Label: The effects of sleep on overall health, Predict: ['the,,,,,,,,,,,'], prompt length: 6284
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 6257
+Label: The impact of social media on communication, Predict: ['the'], prompt length: 6387
+Label: The psychology of happiness, Predict: ['the'], prompt length: 6557
+Label: The role of art in society, Predict: ['the'], prompt length: 6240
+Label: The effects of sleep on overall health, Predict: ['the'], prompt length: 6520
+Label: The benefits of reading for pleasure, Predict: ['the'], prompt length: 6040
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 6494

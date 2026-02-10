@@ -1,0 +1,50 @@
+Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 3404
+Label: The benefits of learning a new language, Predict: ['the benefits of learning a new language. '], prompt length: 3271
+Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems. '], prompt length: 3307
+Label: The role of art in society, Predict: ['the role of art in society. '], prompt length: 3264
+Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems. '], prompt length: 3322
+Label: The benefits of volunteering, Predict: ['the benefits of volunteering. '], prompt length: 3062
+Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance. '], prompt length: 3341
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3145
+Label: The psychology of happiness, Predict: ['the psychology of happiness. '], prompt length: 3069
+Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations. '], prompt length: 3187
+Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind. '], prompt length: 3449
+Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature. '], prompt length: 3435
+Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 3509
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3159
+Label: The role of education in society, Predict: ['the role of education in society. '], prompt length: 3379
+Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health. '], prompt length: 3227
+Label: The psychology of happiness, Predict: ['the psychology of happiness. '], prompt length: 3289
+Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems. '], prompt length: 3055
+Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture. '], prompt length: 3152
+Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture. '], prompt length: 3360
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3137
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3221
+Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations. '], prompt length: 3112
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 2946
+Label: The role of art in society, Predict: ['the role of art in society. '], prompt length: 3376
+Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 3088
+Label: The impact of technology on human connection, Predict: ['the impact of technology on human connection. '], prompt length: 3134
+Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture. '], prompt length: 3197
+Label: The role of art in society, Predict: ['the role of art in society. '], prompt length: 3212
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3282
+Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind. '], prompt length: 3243
+Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems. '], prompt length: 3298
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3268
+Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 3133
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3325
+Label: The benefits of reading for pleasure, Predict: ['the benefits of reading for pleasure. '], prompt length: 3533
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3043
+Label: The effects of air pollution on human health, Predict: ['the effects of air pollution on human health. '], prompt length: 3070
+Label: The role of art in society, Predict: ['the role of art in society. '], prompt length: 3372
+Label: The impact of social media on communication, Predict: ['the impact of social media on communication. '], prompt length: 3464
+Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 3278
+Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind. '], prompt length: 3509
+Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 3156
+Label: The future of renewable energy storage, Predict: ['the future of renewable energy storage. '], prompt length: 3307
+Label: The benefits of a plant-based diet, Predict: ['the benefits of a plant-based diet. '], prompt length: 3278
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3363
+Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture. '], prompt length: 3034
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3077
+Label: The impact of social media on communication, Predict: ['the impact of social media on communication. '], prompt length: 3438
+Label: The role of education in society, Predict: ['the role of education in society. '], prompt length: 3195

@@ -1,0 +1,50 @@
+Label: The benefits of a plant-based diet, Predict: ['the'], prompt length: 12704
+Label: The effects of sleep on overall health, Predict: ['the'], prompt length: 12574
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12463
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12675
+Label: The benefits of mindfulness meditation, Predict: ['the'], prompt length: 12713
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12585
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12655
+Label: The future of renewable energy storage, Predict: ['the'], prompt length: 12737
+Label: The impact of technology on privacy and security, Predict: ['the'], prompt length: 12594
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12564
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12576
+Label: The benefits of reading for pleasure, Predict: ['the'], prompt length: 12922
+Label: The future of space tourism, Predict: ['the'], prompt length: 12420
+Label: The psychology of creativity, Predict: ['the'], prompt length: 12623
+Label: The benefits of spending time in nature, Predict: ['the'], prompt length: 12734
+Label: The effects of air pollution on human health, Predict: ['the'], prompt length: 12661
+Label: The history and culture of the Middle Ages, Predict: ['the'], prompt length: 12909
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 12614
+Label: The benefits of a plant-based diet, Predict: ['the'], prompt length: 12629
+Label: The benefits of regular exercise, Predict: ['the'], prompt length: 12847
+Label: The benefits of volunteering, Predict: ['the'], prompt length: 12382
+Label: The history and culture of the Middle Ages, Predict: ['the'], prompt length: 12481
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 12459
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12415
+Label: The benefits of spending time in nature, Predict: ['the'], prompt length: 12543
+Label: The impact of social media on communication, Predict: ['the'], prompt length: 12803
+Label: The benefits of regular exercise, Predict: ['the'], prompt length: 12553
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 12464
+Label: The psychology of addiction and recovery, Predict: ['the'], prompt length: 12589
+Label: The role of music in society, Predict: ['the'], prompt length: 12665
+Label: The psychology of happiness, Predict: ['the'], prompt length: 12440
+Label: The benefits of learning a new language, Predict: ['the'], prompt length: 12404
+Label: The impact of social media on mental health in adults, Predict: ['the'], prompt length: 12691
+Label: The effects of sleep on overall health, Predict: ['the'], prompt length: 12304
+Label: The benefits of a plant-based diet, Predict: ['the'], prompt length: 12466
+Label: The role of sports in society, Predict: ['the'], prompt length: 12595
+Label: The benefits of reading for pleasure, Predict: ['the'], prompt length: 12542
+Label: The history and culture of ancient civilizations, Predict: ['the'], prompt length: 12772
+Label: The future of renewable energy storage, Predict: ['the'], prompt length: 12643
+Label: The psychology of addiction and recovery, Predict: ['the'], prompt length: 12474
+Label: The psychology of creativity, Predict: ['the'], prompt length: 12418
+Label: The role of art in society, Predict: ['the'], prompt length: 12424
+Label: The role of education in society, Predict: ['the'], prompt length: 12490
+Label: The future of renewable energy technology, Predict: ['the'], prompt length: 12415
+Label: The effects of sleep on overall health, Predict: ['the'], prompt length: 12752
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12653
+Label: The role of art in society, Predict: ['the'], prompt length: 12492
+Label: The role of education in society, Predict: ['the'], prompt length: 12557
+Label: The history and impact of the Renaissance, Predict: ['the'], prompt length: 12949
+Label: The benefits of volunteering, Predict: ['the'], prompt length: 12568

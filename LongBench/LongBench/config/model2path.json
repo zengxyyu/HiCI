@@ -1,0 +1,18 @@
+{
+    "llama2-7b-chat-4k": "meta-llama/Llama-2-7b-chat-hf",
+    "longchat-v1.5-7b-32k": "lmsys/longchat-7b-v1.5-32k",
+    "xgen-7b-8k": "Salesforce/xgen-7b-8k-inst",
+    "internlm-7b-8k": "internlm/internlm-chat-7b-8k",
+    "chatglm2-6b": "THUDM/chatglm2-6b",
+    "chatglm2-6b-32k": "THUDM/chatglm2-6b-32k",
+    "chatglm3-6b-32k": "THUDM/chatglm3-6b-32k",
+    "vicuna-v1.5-7b-16k": "lmsys/vicuna-7b-v1.5-16k",
+    "longalpaca-7b-16k": "/path/to/models/LongAlpaca-7B-16k",
+    "my-sft-16k": "/path/to/merged_models/Llama-2-7b-SFT-2e_clean_share_1000_to2k-16k_merged",
+    "hici-13b-16k": "/path/to/merged_models/Llama-2-13b-HiCI-16k",
+    "hici-7b-sft-16k": "/path/to/merged_models/Llama-2-7b-SFT-hici-2000-s1024-16k-merged",
+    "hici-7b-sft-re-16k": "/path/to/merged_models/Llama-2-7b-SFT-hici-2000-s1024-16k-re-merged",
+    "hici-7b-sft-16k-yes": "/path/to/merged_models/Llama-2-7b-SFT-hici-2000-s1024-16k-yes-merged",
+    "hici-7b-chat-sft-16k-yes": "/path/to/merged_models/Llama-2-7b-chat-SFT-hici-16k-yes-merged",
+    "hici-7b-chat-sft-16k-no-5epoch": "/path/to/merged_models/Llama-2-7b-chat-SFT-hici-16k-no-merged-500"
+}
