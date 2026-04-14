@@ -15,9 +15,10 @@ from peft import PeftModel
 # Import HiCI attention replacement instead of standard LongLoRA
 import llama_attn_hici as hici_attn
 
+
 def parse_config():
     parser = argparse.ArgumentParser(description='arg parser')
-    parser.add_argument('--base_model', type=str, default="/path/to/llama-7b-hf")
+    parser.add_argument('--base_model', type=str, default="/data1/pretrained-models/llama-7b-hf")
     parser.add_argument('--cache_dir', type=str, default="./cache")
     parser.add_argument('--context_size', type=int, default=-1, help='context size during fine-tuning')
     parser.add_argument('--flash_attn', type=bool, default=True, help='whether to use flash attention 2')
@@ -34,6 +35,7 @@ def parse_config():
     args = parser.parse_args()
     return args
 
+
 def generate_prompt_landmark(n_garbage, seed):
     """Generates a text file and inserts an passkey at a random position."""
     rnd_state = random.get_state()
@@ -43,7 +45,7 @@ def generate_prompt_landmark(n_garbage, seed):
 
     task_description = "There is an important info hidden inside a lot of irrelevant text. Find it and memorize them. I will quiz you about the important information there."
     garbage = "The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again."
-    garbage_inf = " ".join([garbage] * 50000)
+    garbage_inf = " ".join([garbage] * 50000)  # large enough for 100K+ tokens
     assert len(garbage_inf) >= n_garbage, f"garbage_inf length {len(garbage_inf)} < n_garbage {n_garbage}"
     garbage_prefix = garbage_inf[:n_garbage_prefix]
     garbage_suffix = garbage_inf[:n_garbage_suffix]
@@ -59,6 +61,7 @@ def generate_prompt_landmark(n_garbage, seed):
     ]
     random.set_state(rnd_state)
     return "\n".join(lines), str(pass_key)
+
 
 def passkey_retrieval_test(model, tokenizer, device, use_cache=False, n_garbage=60000, seed=666):
     prompt, answer = generate_prompt_landmark(n_garbage, seed)
@@ -76,6 +79,7 @@ def passkey_retrieval_test(model, tokenizer, device, use_cache=False, n_garbage=
     is_correct = (model_answer == answer_ids[0]).all().item()
     return is_correct, len_token
 
+
 def main(args):
     device = "cuda:0"
     torch.cuda.set_device(device)
@@ -86,6 +90,7 @@ def main(args):
     if args.flash_attn:
         if args.use_grouped_attn:
             # Set group_size_ratio based on segment_size and context_size
+            # group_size_ratio = segment_size / context_size
             # For 100k context with 1024-token segments: 1024/102400 = 1/100
             group_size_ratio = args.segment_size / args.context_size
             hici_attn.group_size_ratio = group_size_ratio
@@ -111,8 +116,12 @@ def main(args):
     context_size = args.context_size
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
 
+    # LLaMA-2 native context length used to compute rope_scaling factor
     LLAMA2_ORIG_CTX = 4096
 
+    # Set rope_scaling only when needed:
+    # Case 1: config already has rope_scaling -> use it as-is
+    # Case 2: no rope_scaling but context_size > 4096 -> set linear scaling
     existing_rope_scaling = getattr(config, "rope_scaling", None)
 
     if existing_rope_scaling is not None:
@@ -147,22 +156,27 @@ def main(args):
     )
 
     # ========================================================================
+    # HiCI models require registering memory modules before loading weights.
+    # AutoModelForCausalLM.from_pretrained() builds the model from config.json,
+    # which does not include HiCI module definitions, so HiCI weights are skipped.
+    # Fix: register HiCI modules first, then reload weights.
     # ========================================================================
     if args.use_grouped_attn:
         import os
         import json
 
         print("\n" + "=" * 60)
-        print(" HiCI Module Loading...")
+        print("Registering HiCI memory modules and reloading weights...")
         print("=" * 60)
 
+        # HiCI module params — must match training config
+        # Note: num_heads is internal to the HiCI module, independent of model heads
         hici_params = {
             "num_local_slots": 7,
             "global_slots": 5,
-            "num_heads": 8,
-            "use_hierarchical": True,
-            "use_flash_plus": False,
-            "use_flash": False,
+            "num_heads": 8,  # HiCI module uses 8 heads, independent of base model
+            "use_global_integrator": True,
+            "use_local_constructor_flash": False,
             "use_bottleneck": True,
             "bottleneck_dim": 512,
             "compress_dim": 512,
@@ -174,24 +188,29 @@ def main(args):
         print(f"  global_slots: {hici_params['global_slots']}")
         print(f"  bottleneck_dim: {hici_params['bottleneck_dim']}")
 
+        # Step 1: Register HiCI modules (create empty modules)
         hici_attn.register_hici_to_model(model, **hici_params)
-        print(" HiCI Module Loaded")
+        print("HiCI memory modules registered")
 
+        # Step 2: Reload weights (HiCI modules now exist in the model)
+        # Check whether the model is saved as sharded files
         index_file = os.path.join(args.base_model, "pytorch_model.bin.index.json")
         single_file = os.path.join(args.base_model, "pytorch_model.bin")
 
         if os.path.exists(index_file):
+            # Sharded model: load all shards
             with open(index_file, 'r') as f:
                 index = json.load(f)
 
             shard_files = set(index["weight_map"].values())
-            print(f" {len(shard_files)} ...")
+            print(f"  Loading {len(shard_files)} weight shards...")
 
             hici_loaded = 0
             for shard_file in shard_files:
                 shard_path = os.path.join(args.base_model, shard_file)
                 shard_weights = torch.load(shard_path, map_location="cpu")
 
+                # Load only HiCI-related weights
                 hici_weights = {k: v for k, v in shard_weights.items()
                                if "local_constructor" in k or "hierarchical" in k}
 
@@ -202,9 +221,10 @@ def main(args):
                 del shard_weights
                 torch.cuda.empty_cache()
 
-                print(f" {hici_loaded} HiCI ")
+            print(f"  Loaded {hici_loaded} HiCI parameters")
 
-            print(" HiCI ...")
+            # Move HiCI modules to the same device as their corresponding layer
+            print("  Moving HiCI modules to correct devices...")
             for layer in model.model.layers:
                 if hasattr(layer.self_attn, 'local_constructor'):
                     layer_device = layer.self_attn.q_proj.weight.device
@@ -212,9 +232,10 @@ def main(args):
                 if hasattr(layer.self_attn, 'global_integrator'):
                     layer_device = layer.self_attn.q_proj.weight.device
                     layer.self_attn.global_integrator = layer.self_attn.global_integrator.to(layer_device)
-                    print(" HiCI ")
+            print("  HiCI modules moved to correct devices")
 
         elif os.path.exists(single_file):
+            # Single-file model
             state_dict = torch.load(single_file, map_location="cpu")
             hici_weights = {k: v for k, v in state_dict.items()
                            if "local_constructor" in k or "hierarchical" in k}
@@ -224,7 +245,8 @@ def main(args):
                 loaded = len(hici_weights) - len(missing)
                 print(f"  Loaded {loaded} HiCI parameters")
 
-                print("  Moving HiCI modules to correct device...")
+                # Move HiCI modules to the same device as their corresponding layer
+                print("  Moving HiCI modules to correct devices...")
                 for layer in model.model.layers:
                     if hasattr(layer.self_attn, 'local_constructor'):
                         layer_device = layer.self_attn.q_proj.weight.device
@@ -232,14 +254,14 @@ def main(args):
                     if hasattr(layer.self_attn, 'global_integrator'):
                         layer_device = layer.self_attn.q_proj.weight.device
                         layer.self_attn.global_integrator = layer.self_attn.global_integrator.to(layer_device)
-                print("  HiCI modules moved to correct device")
+                print("  HiCI modules moved to correct devices")
             else:
-                print("  WARNING: No HiCI weights found! Model may not have been merged with merge_lora_weights_hici.py")
+                print("⚠️ No HiCI weights found! Model may not have been merged with merge_lora_weights_hici.py")
 
             del state_dict
             torch.cuda.empty_cache()
         else:
-            print(f"  WARNING: Weight file not found: {single_file} or {index_file}")
+            print(f"⚠️ Weight file not found: {single_file} or {index_file}")
 
         print("=" * 60 + "\n")
 
@@ -259,6 +281,7 @@ def main(args):
         print("accuracy on the token length %d is %f" % (avg_tokens, accuracy))
         all_accuries[str(avg_tokens)] = accuracy
     print("accuries over tokens", all_accuries)
+
 
 if __name__ == "__main__":
     args = parse_config()

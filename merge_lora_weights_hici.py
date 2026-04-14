@@ -1,7 +1,7 @@
-# Merge LoRA weights with HiCI HiCI modules
+# Merge LoRA weights with HiCI memory modules
 #
 # Key difference from original merge script:
-# 1. Register HiCI HiCI modules BEFORE loading trainable_params.bin
+# 1. Register HiCI memory modules BEFORE loading trainable_params.bin
 # 2. This ensures local_constructor.* parameters are properly loaded
 
 import os
@@ -20,9 +20,10 @@ DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
 
+
 def parse_config():
     parser = argparse.ArgumentParser(
-        description="Merge LoRA weights with HiCI HiCI modules"
+        description="Merge LoRA weights with HiCI memory modules"
     )
     parser.add_argument(
         "--base_model", type=str, required=True, help="Path to base LLaMA model"
@@ -36,15 +37,16 @@ def parse_config():
     )
     parser.add_argument("--cache_dir", type=str, default=None, help="Cache directory")
 
-    # HiCI HiCI module parameters (should match training)
+    # HiCI memory module parameters (should match training)
+    # These can be inferred by inspecting trainable_params.bin
     parser.add_argument(
-        "--num_local_slots", type=int, default=7, help="Number of local query slots"
+        "--num_local_slots", type=int, default=8, help="Number of memory slots"
     )
     parser.add_argument(
         "--global_slots",
         type=int,
-        default=5,
-        help="Number of global slots ( global_queries )",
+        default=4,
+        help="Number of global slots (inferred from global_queries shape)",
     )
     parser.add_argument(
         "--num_heads",
@@ -61,12 +63,7 @@ def parse_config():
         default=128,
         help="Shared compressor dimension",
     )
-    parser.add_argument(
-        "--use_flash_plus",
-        action="store_true",
-        default=False,
-        help="Use LocalConstructorFlashPlus (default: False, use LocalConstructorFlash)",
-    )
+    # LocalConstructor bottleneck dimension
     parser.add_argument(
         "--bottleneck_dim",
         type=int,
@@ -76,6 +73,7 @@ def parse_config():
 
     args = parser.parse_args()
     return args
+
 
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
@@ -99,6 +97,7 @@ def smart_tokenizer_and_embedding_resize(
 
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
+
 
 def main(args):
     device = "cuda:0"
@@ -155,12 +154,11 @@ def main(args):
         model=model,
     )
 
-    # Step 4: Register HiCI HiCI modules (CRITICAL!)
-    print("\n[4/6] Registering HiCI HiCI modules...")
+    # Step 4: Register HiCI memory modules (CRITICAL!)
+    print("\n[4/6] Registering HiCI memory modules...")
     print(f"  num_local_slots: {args.num_local_slots}")
     print(f"  global_slots: {args.global_slots}")
     print(f"  num_heads: {args.num_heads}")
-    print(f"  use_flash_plus: {args.use_flash_plus}")
     print(f"  bottleneck_dim: {args.bottleneck_dim}")
     print(f"  compress_dim: {args.compress_dim}")
     print(f"  shared_compress_dim: {args.shared_compress_dim}")
@@ -170,11 +168,10 @@ def main(args):
         num_local_slots=args.num_local_slots,
         global_slots=args.global_slots,
         num_heads=args.num_heads,
-        use_hierarchical=True,
-        use_flash_plus=args.use_flash_plus,
-        use_flash=False,
+        use_global_integrator=True,
+        use_local_constructor_flash=False,
         use_bottleneck=True,
-        bottleneck_dim=args.bottleneck_dim,
+        bottleneck_dim=args.bottleneck_dim,  # must match training config
         compress_dim=args.compress_dim,
         shared_compress_dim=args.shared_compress_dim,
     )
@@ -189,30 +186,30 @@ def main(args):
         hici_keys = [
             k
             for k in trainable_params.keys()
-            if "local_constructor" in k or "global_integrator" in k or "global_integrator" in k
+            if "memory" in k.lower() or "global" in k.lower()
         ]
         print(f"  Found {len(trainable_params)} parameters in trainable_params.bin")
-        print(f"  Including {len(hici_keys)} HiCI HiCI parameters")
+        print(f"  Including {len(hici_keys)} HiCI memory parameters")
 
         # Load with strict=False but check what was loaded
         missing, unexpected = model.load_state_dict(trainable_params, strict=False)
 
         # Verify HiCI parameters were loaded
         loaded_hici = len(hici_keys) - len(
-            [k for k in missing if "local_constructor" in k or "global_integrator" in k or "global_integrator" in k]
+            [k for k in missing if "memory" in k.lower() or "global" in k.lower()]
         )
         print(f"  Successfully loaded {loaded_hici} HiCI parameters")
 
         if missing:
             hici_missing = [
-                k for k in missing if "local_constructor" in k or "global_integrator" in k or "global_integrator" in k
+                k for k in missing if "memory" in k.lower() or "global" in k.lower()
             ]
             if hici_missing:
-                print(f"   Warning: {len(hici_missing)} HiCI parameters not loaded!")
+                print(f"  ⚠️ Warning: {len(hici_missing)} HiCI parameters not loaded!")
                 for k in hici_missing[:5]:
                     print(f"    - {k}")
     else:
-        print(f"   Warning: {trainable_params_path} not found!")
+        print(f"  ⚠️ Warning: {trainable_params_path} not found!")
 
     # Step 6: Load and merge LoRA
     print("\n[6/6] Loading and merging LoRA weights...")
@@ -227,9 +224,9 @@ def main(args):
     # Verify final model has HiCI modules
     state_dict = model.state_dict()
     final_hici_keys = [
-        k for k in state_dict.keys() if "local_constructor" in k or "global_integrator" in k or "global_integrator" in k
+        k for k in state_dict.keys() if "memory" in k.lower() or "global" in k.lower()
     ]
-    print(f"\n Final model has {len(final_hici_keys)} HiCI parameters")
+    print(f"\n✅ Final model has {len(final_hici_keys)} HiCI parameters")
 
     # Save
     print(f"\nSaving merged model to {args.save_path}...")
@@ -237,8 +234,9 @@ def main(args):
     tokenizer.save_pretrained(args.save_path)
 
     print("\n" + "=" * 60)
-    print(" Merge complete!")
+    print("✅ Merge complete!")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     args = parse_config()

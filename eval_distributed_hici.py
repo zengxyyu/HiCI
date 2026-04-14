@@ -1,3 +1,4 @@
+# Written by Yukang Chen
 # Some code based on https://github.com/epfml/landmark-attention
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +22,8 @@ import random
 import transformers
 from peft import PeftModel
 
+# Use llama_attn_hici to support the HiCI memory mechanism
+# from llama_attn_memory_inject import replace_llama_attn, register_hici_to_model
 from llama_attn_hici import (
     replace_llama_attn,
     register_hici_to_model,
@@ -40,17 +43,20 @@ from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
+
 import numpy as np
 import torch
 
+
 class Pg19Dataset(Dataset):
-    def __init__(self, data_path: str, seq_length: int, sliding_window: int = 256):
+    def __init__(self, data_path: str, seq_length: int, sliding_window: int = 256, data_dtype: str = "uint16"):
         assert seq_length >= sliding_window, (
             f"Sliding window '{sliding_window}' must be smaller than sequence length '{seq_length}'"
         )
 
         self.seq_length = seq_length
-        self.data = np.memmap(data_path, dtype=np.uint16, mode="r")
+        # uint16 for LLaMA-2 (vocab 32K), uint32 for LLaMA-3 (vocab 128K) / Qwen (vocab 152K)
+        self.data = np.memmap(data_path, dtype=np.dtype(data_dtype), mode="r")
         self.start_indices = list(range(0, len(self.data) - seq_length, sliding_window))
 
         assert len(self) > 0, "Dataset is empty"
@@ -70,6 +76,7 @@ class Pg19Dataset(Dataset):
     def num_tokens(self):
         return len(self.data)
 
+
 class EvalMetric(ABC):
     @abstractmethod
     def add(
@@ -80,6 +87,7 @@ class EvalMetric(ABC):
     @abstractmethod
     def compute(self) -> dict[str, object]:
         pass
+
 
 class DistributedEvaluator:
     def __init__(
@@ -132,6 +140,7 @@ class DistributedEvaluator:
             sampler=DistributedSampler(dataset),
         )
 
+
 class EvalMetricImpl(EvalMetric):
     def __init__(self, vocab_size: int, gpu_id: int):
         self.accuracy = Accuracy(task="multiclass", num_classes=vocab_size).to(gpu_id)
@@ -171,6 +180,7 @@ class EvalMetricImpl(EvalMetric):
             "loss": self.last_loss,
         }
 
+
 @dataclass
 class EvalArguments:
     batch_size: int = field(
@@ -203,58 +213,44 @@ class EvalArguments:
     num_local_slots: int = field(
         default=8,
         metadata={
-            "help": "Number of HiCI slots (must match training config)."
+            "help": "Number of Global Representation Slots (must match training config)."
         },
     )
     global_slots: int = field(
         default=16,
         metadata={
-            "help": "Number of HiCI slots for capturing document-level context (default: 16)."
+            "help": "Number of Global Representation Slots for capturing document-level context (default: 16)."
         },
     )
-    use_local_summary: bool = field(
+    use_local_constructor: bool = field(
         default=True,
-        metadata={"help": "Whether to use local representation extraction."},
+        metadata={"help": "Whether to use local memory attention."},
     )
-    use_global_repr: bool = field(
+    use_global_integrator: bool = field(
         default=True,
-        metadata={"help": "Whether to use HiCI attention."},
+        metadata={"help": "Whether to use hierarchical memory attention."},
     )
-    use_flash_plus: Optional[bool] = field(
-        default=True,
-        metadata={"help": "Whether to use LocalConstructorFlashPlus."},
-    )
-    use_flash_attn_in_hici: bool = field(
+    use_local_constructor_flash: bool = field(
         default=False,
         metadata={"help": "Whether to use flash attn in LocalConstructorFlash."},
     )
-    use_flash_plus_norope: Optional[bool] = field(
-        default=False,
-        metadata={
-        "help": "： HiCI RoPE， RoPE plus "
-        },
-    )
-    forward_flashattn_optimized: Optional[bool] = field(
-        default=False,
-        metadata={"help": "forward_flashattn_optimized"},
-    )
     use_hierarchical_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "，+"},
+        metadata={"help": "Whether to use hierarchical forward (local + global memory)."},
     )
     num_heads: int = field(
         default=32,
-        metadata={"help": "Number of attention heads in the HiCI module."},
+        metadata={"help": "Number of attention heads in the memory module."},
     )
     use_bottleneck: bool = field(
         default=True,
         metadata={
-            "help": "Whether to use bottleneck in HiCI aggregator."
+            "help": "Whether to use bottleneck in hierarchical memory aggregator."
         },
     )
     bottleneck_dim: int = field(
         default=4096,
-        metadata={"help": "Bottleneck dimension for representation compression."},
+        metadata={"help": "Bottleneck dimension for memory compression."},
     )
     recurrence_size: Optional[int] = field(
         default=128,
@@ -265,10 +261,10 @@ class EvalArguments:
     eval_mode: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Evaluation mode: 'chunked' (same as training), 'full' (full attention no HiCI), "
-            "'full_hierarchical' (full attention + HiCI). Default: None (uses chunked)."
+            "help": "Evaluation mode: None (chunked, same as training) or 'full' (full attention, no memory)."
         },
     )
+
 
 def run_eval(args: EvalArguments):
     torch_dtype = torch.float16
@@ -278,20 +274,18 @@ def run_eval(args: EvalArguments):
     random.seed(seed)
     np.random.seed(seed)
 
-    dataset = Pg19Dataset(args.data_path, seq_length=args.seq_len, sliding_window=256)
     if args.flash_attn:
         # Evaluation modes:
-        # - None or "chunked": Chunked attention with HiCI (same as training)
-        # - "full": Full attention without HiCI (LongLoRA style)
-        # - "full_hierarchical": Full attention + HiCI (evaluation way3)
+        # - None or "chunked": Chunked attention with memory (same as training)
+        # - "full": Full attention without memory (LongLoRA style)
+        # replace_llama_attn(
+        #     use_flash_attn=True,
+        #     use_full=True,
+        #     eval_mode=args.eval_mode
         #     )
         replace_llama_attn(
             use_flash_attn=True,
-            use_full=True,
             eval_mode=args.eval_mode,
-            use_optimized=args.forward_flashattn_optimized,
-            use_optimized_plus=args.use_flash_plus,
-            use_optimized_plus_norope=args.use_flash_plus_norope,
             use_hierarchical_forward=args.use_hierarchical_forward,
         )
 
@@ -299,6 +293,10 @@ def run_eval(args: EvalArguments):
     config = transformers.AutoConfig.from_pretrained(
         args.base_model, cache_dir=args.cache_dir, use_cache=False
     )
+
+    # vocab_size > 65535 means token ids don't fit in uint16
+    data_dtype = "uint32" if config.vocab_size > 65535 else "uint16"
+    dataset = Pg19Dataset(args.data_path, seq_length=args.seq_len, sliding_window=256, data_dtype=data_dtype)
 
     context_size = args.context_size if args.context_size > 0 else args.seq_len
     orig_ctx_len = getattr(
@@ -315,8 +313,11 @@ def run_eval(args: EvalArguments):
         cache_dir=args.cache_dir,
         torch_dtype=torch_dtype,
     )
+    # Set vocab size based on model type
+    # Llama-2: 32001, Llama-3: 128256 (or 128258 if special tokens were added during training)
     vocab_size = config.vocab_size
-    if vocab_size >= 128000:  # Llama 3
+    if vocab_size >= 128000:  # Llama-3
+        # Check checkpoint embedding size; special tokens may have been added
         trainable_params_path = os.path.join(args.peft_model, "trainable_params.bin") if args.peft_model else None
         if trainable_params_path and os.path.isfile(trainable_params_path):
             tp = torch.load(trainable_params_path, map_location='cpu', weights_only=False)
@@ -326,33 +327,43 @@ def run_eval(args: EvalArguments):
                     break
             del tp
         model.resize_token_embeddings(vocab_size)
-        print(f" Resized token embeddings to {vocab_size} (Llama 3)")
+        print(f"📊 Resized token embeddings to {vocab_size} (Llama 3)")
     else:  # Llama 2
         model.resize_token_embeddings(32001)
-        print(f" Resized token embeddings to 32001 (Llama 2)")
+        print(f"📊 Resized token embeddings to 32001 (Llama 2)")
 
-    # Register HiCI modules (CRITICAL: must be done before loading PEFT weights!)
+    # Register global memory modules (CRITICAL: must be done before loading PEFT weights!)
     print(f"\n{'=' * 70}")
-    print(f"Registering HiCI for Evaluation")
+    print(f"Registering Global Memory for Evaluation")
     print(f"{'=' * 70}")
+    # register_hici_to_model(
     #     model,
+    #     num_local_slots=args.num_local_slots,
+    #     global_slots=args.global_slots,
+    #     num_heads=args.num_heads,
+    #     use_bottleneck=args.use_bottleneck,
+    #     bottleneck_dim=args.bottleneck_dim,
+    #     use_local_constructor=args.use_local_constructor,
+    #     use_global_integrator=args.use_global_integrator,
+    #     # recurrence_size=args.recurrence_size
     # )
     register_hici_to_model(
         model,
         num_local_slots=args.num_local_slots,
+        # recurrence_size=training_args.recurrence_size,
         global_slots=args.global_slots,
+        # num_chunks=args.num_chunks,
         num_heads=args.num_heads,
         use_bottleneck=args.use_bottleneck,
         bottleneck_dim=args.bottleneck_dim,
-        use_local_summary=args.use_local_summary,
-        use_hierarchical=args.use_global_repr,
-        use_flash_plus=args.use_flash_plus,
-        use_flash=args.use_flash_attn_in_hici,
+        use_local_constructor=args.use_local_constructor,
+        use_global_integrator=args.use_global_integrator,
+        use_local_constructor_flash=args.use_local_constructor_flash,
     )
 
     # CRITICAL: Convert local_constructor and global_integrator to the same dtype as the model (fp16)
     # These modules are created in fp32 by default, but model is fp16
-    print(f"Converting HiCI modules to {torch_dtype}...")
+    print(f"Converting memory modules to {torch_dtype}...")
     for layer in model.model.layers:
         if hasattr(layer.self_attn, "local_constructor"):
             layer.self_attn.local_constructor = layer.self_attn.local_constructor.to(
@@ -363,17 +374,18 @@ def run_eval(args: EvalArguments):
                 layer.self_attn.global_integrator.to(torch_dtype)
             )
 
-    print(f" HiCI modules registration complete!")
-    print(f"   Number of local query slots: {args.num_local_slots}")
+    print(f"✅ Memory modules registration complete!")
+    print(f"   Number of memory slots: {args.num_local_slots}")
     print(f"   dtype: {torch_dtype}")
     print(f"{'=' * 70}\n")
 
-    # For full fine-tuning: reload checkpoint to restore HiCI module weights
+    # For full fine-tuning: reload checkpoint to restore memory module weights
+    # Background: Memory modules are added dynamically via register_hici_to_model(),
     # not defined in LlamaAttention.__init__. HuggingFace's from_pretrained() ignores
     # these extra weights, so we need to explicitly reload them after registration.
     if not args.peft_model:
         print(f"\n{'=' * 70}")
-        print(f" Loading HiCI weights from full fine-tuned checkpoint...")
+        print(f"🔄 Loading memory weights from full fine-tuned checkpoint...")
         print(f"{'=' * 70}")
 
         # Try single file first, then check for sharded checkpoints
@@ -403,25 +415,25 @@ def run_eval(args: EvalArguments):
                     print(f"   Found {len(checkpoint_files)} shards via pattern matching")
 
         if checkpoint_files:
-            total_hici_keys = 0
+            total_memory_keys = 0
             for ckpt_file in checkpoint_files:
                 if os.path.isfile(ckpt_file):
                     state_dict = torch.load(ckpt_file, map_location=model.device)
 
-                    # Only load HiCI-related keys to avoid overwriting model weights
-                    hici_state_dict = {k: v for k, v in state_dict.items()
+                    # Only load memory-related keys to avoid overwriting model weights
+                    memory_state_dict = {k: v for k, v in state_dict.items()
                                         if 'local_constructor' in k or 'global_integrator' in k}
 
-                    if hici_state_dict:
-                        model.load_state_dict(hici_state_dict, strict=False)
-                        total_hici_keys += len(hici_state_dict)
-                        print(f"   Loaded {len(hici_state_dict)} HiCI keys from {os.path.basename(ckpt_file)}")
+                    if memory_state_dict:
+                        model.load_state_dict(memory_state_dict, strict=False)
+                        total_memory_keys += len(memory_state_dict)
+                        print(f"   Loaded {len(memory_state_dict)} memory keys from {os.path.basename(ckpt_file)}")
 
                     del state_dict  # Free memory
 
-            print(f" Loaded {total_hici_keys} total HiCI parameters")
+            print(f"✅ Loaded {total_memory_keys} total memory-related parameters")
         else:
-            print(f" Error: Could not find checkpoint file at {args.base_model}")
+            print(f"❌ Error: Could not find checkpoint file at {args.base_model}")
             print(f"   Tried: pytorch_model.bin, pytorch_model.bin.index.json, pytorch_model-*.bin")
             raise FileNotFoundError(f"Checkpoint not found at {args.base_model}")
 
@@ -469,8 +481,7 @@ def run_eval(args: EvalArguments):
         eval_mode_desc = {
             None: "chunked (same as training)",
             "chunked": "chunked (same as training)",
-            "full": "full attention (no HiCI)",
-            "full_hierarchical": "full attention + HiCI",
+            "full": "full attention (no memory)",
         }
         print(
             f"eval mode: {args.eval_mode} -> {eval_mode_desc.get(args.eval_mode, 'unknown')}"
@@ -484,8 +495,19 @@ def run_eval(args: EvalArguments):
     if evaluator.is_first_device():
         print(result)
 
+        # Save attention visualization stats (if collection is enabled)
+        from llama_attn_hici import COLLECT_ATTENTION_FOR_VIZ, save_attention_stats
+        if COLLECT_ATTENTION_FOR_VIZ:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = f"attention_stats_seq{args.seq_len}_{timestamp}.json"
+            save_attention_stats(save_path)
+            print(f"📊 Attention stats saved to {save_path}")
+
+
 def ddp_setup():
     init_process_group(backend="nccl")
+
 
 def main(cmd_args: list[str] = None):
     ddp_setup()
@@ -495,6 +517,7 @@ def main(cmd_args: list[str] = None):
         run_eval(args)
     finally:
         destroy_process_group()
+
 
 if __name__ == "__main__":
     main()

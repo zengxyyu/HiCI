@@ -1,3 +1,4 @@
+# Written by Yukang Chen
 # Some code based on https://github.com/epfml/landmark-attention
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,9 +39,10 @@ IGNORE_INDEX = -100
 # Custom Trainer with Layered Learning Rates
 # ============================================================================
 
+
 class LayeredLRTrainer(Trainer):
     """
-    Custom Trainer that supports different learning rates for HiCI parameters.
+    Custom Trainer that supports different learning rates for global memory parameters.
 
     Usage:
         trainer = LayeredLRTrainer(
@@ -54,7 +56,7 @@ class LayeredLRTrainer(Trainer):
         """
         Create optimizer with separate learning rates for different parameter groups.
 
-        If args.hici_lr is set, HiCI parameters use that lr,
+        If args.hici_lr is set, global memory parameters use that lr,
         while other parameters use args.learning_rate.
         """
         if self.optimizer is None:
@@ -68,6 +70,7 @@ class LayeredLRTrainer(Trainer):
                     print("=" * 70)
 
                 # Separate parameters into groups
+                # Collect local_constructor and global_integrator params separately
                 local_constructor_params = []
                 global_integrator_params = []
                 other_params = []
@@ -76,6 +79,7 @@ class LayeredLRTrainer(Trainer):
                     if not p.requires_grad:
                         continue
 
+                    # Check if this is a memory module parameter
                     if "local_constructor" in n:
                         local_constructor_params.append(p)
                     elif "global_integrator" in n:
@@ -83,13 +87,13 @@ class LayeredLRTrainer(Trainer):
                     else:
                         other_params.append(p)
 
-                # Combine HiCI params for optimizer (may be empty if HiCI is not enabled)
-                hici_params = local_constructor_params + global_integrator_params
+                # Combine memory params for optimizer (may be empty if no memory modules)
+                memory_params = local_constructor_params + global_integrator_params
 
                 # Create parameter groups with different learning rates
                 optimizer_grouped_parameters = [
                     {
-                        "params": hici_params,
+                        "params": memory_params,
                         "lr": self.args.hici_lr,
                         "weight_decay": self.args.weight_decay,
                     },
@@ -114,56 +118,56 @@ class LayeredLRTrainer(Trainer):
 
                 # Print summary with detailed breakdown (only on rank 0)
                 if is_main_process:
-                    local_constructor_count = sum(p.numel() for p in local_constructor_params)
+                    global_memory_count = sum(p.numel() for p in local_constructor_params)
                     hierarchical_count = sum(
                         p.numel() for p in global_integrator_params
                     )
-                    hici_count = local_constructor_count + hierarchical_count
+                    memory_count = global_memory_count + hierarchical_count
                     other_count = sum(p.numel() for p in other_params)
-                    total_count = hici_count + other_count
+                    total_count = memory_count + other_count
 
-                    print(f"\n   HiCI Module Parameters Breakdown:")
+                    print(f"\n  📊 Memory Module Parameters Breakdown:")
                     print(f"  " + "-" * 68)
 
-                    if local_constructor_count > 0:
-                        print(f"     LocalConstructor:")
+                    if global_memory_count > 0:
+                        print(f"    🧠 LocalMemory:")
                         print(
-                            f"       Count: {local_constructor_count:,} ({local_constructor_count / total_count * 100:.2f}%)"
+                            f"       Count: {global_memory_count:,} ({global_memory_count / total_count * 100:.2f}%)"
                         )
                     else:
-                        print(f"     LocalConstructor: Not enabled (0 parameters)")
+                        print(f"    🧠 LocalMemory: Not enabled (0 parameters)")
 
                     if hierarchical_count > 0:
-                        print(f"      HierarchicalAggregator:")
+                        print(f"    🏗️  HierarchicalAggregator:")
                         print(
                             f"       Count: {hierarchical_count:,} ({hierarchical_count / total_count * 100:.2f}%)"
                         )
                     else:
                         print(
-                            f"      HierarchicalAggregator: Not enabled (0 parameters)"
+                            f"    🏗️  HierarchicalAggregator: Not enabled (0 parameters)"
                         )
 
                     print(f"  " + "-" * 68)
                     print(
-                        f"     Total HiCI Modules: {hici_count:,} ({hici_count / total_count * 100:.2f}%)"
+                        f"    📦 Total Memory Modules: {memory_count:,} ({memory_count / total_count * 100:.2f}%)"
                     )
-                    print(f"     Learning Rate: {self.args.hici_lr:.2e}")
+                    print(f"    📝 Learning Rate: {self.args.hici_lr:.2e}")
 
-                    print(f"\n   Other Trainable Parameters:")
+                    print(f"\n  📚 Other Trainable Parameters:")
                     print(
                         f"    Count: {other_count:,} ({other_count / total_count * 100:.2f}%)"
                     )
                     print(f"    Learning Rate: {self.args.learning_rate:.2e}")
 
                     print(
-                        f"\n   Learning Rate Ratio: {self.args.hici_lr / self.args.learning_rate:.1f}x"
+                        f"\n  ⚡ Learning Rate Ratio: {self.args.hici_lr / self.args.learning_rate:.1f}x"
                     )
                     print("=" * 70 + "\n")
 
             else:
                 # Use standard optimizer creation (only print on rank 0)
                 if self.args.local_rank <= 0:
-                    print("\n Using uniform learning rate for all parameters")
+                    print("\n📌 Using uniform learning rate for all parameters")
                     print(f"   Learning Rate: {self.args.learning_rate:.2e}\n")
                 return super().create_optimizer()
 
@@ -171,9 +175,9 @@ class LayeredLRTrainer(Trainer):
 
     def training_step(self, model, inputs):
         """
-        Perform a training step with separate gradient clipping for HiCI modules.
+        Perform a training step with separate gradient clipping for memory modules.
 
-        If args.hici_grad_clip is set, HiCI module parameters get stricter clipping
+        If args.hici_grad_clip is set, memory module parameters get stricter clipping
         than other parameters (which use args.max_grad_norm).
         """
         # Call parent's training_step to do forward + backward
@@ -185,22 +189,22 @@ class LayeredLRTrainer(Trainer):
             and self.args.hici_lr is not None
         ):
             # Separate parameters into groups
-            hici_params = []
+            memory_params = []
             other_params = []
 
             for name, param in model.named_parameters():
                 if param.grad is not None:
-                    # Check if this is a HiCI module parameter
+                    # Check if this is a memory module parameter
                     if "local_constructor" in name or "global_integrator" in name:
-                        hici_params.append(param)
+                        memory_params.append(param)
                     else:
                         other_params.append(param)
 
-            # Apply stricter gradient clipping to HiCI modules ONLY
+            # Apply stricter gradient clipping to memory modules ONLY
             # Other parameters (embed, norm) are stable and don't need clipping
-            if hici_params:
+            if memory_params:
                 torch.nn.utils.clip_grad_norm_(
-                    hici_params, max_norm=self.args.hici_grad_clip
+                    memory_params, max_norm=self.args.hici_grad_clip
                 )
 
             # Note: Other parameters don't use gradient clipping
@@ -213,10 +217,10 @@ class LayeredLRTrainer(Trainer):
                     print("\n" + "=" * 70)
                     print("Gradient Clipping Configuration")
                     print("=" * 70)
-                    print(f"   HiCI Modules:")
+                    print(f"  🧠 Memory Modules:")
                     print(f"     Max Gradient Norm: {self.args.hici_grad_clip}")
-                    print(f"     Num Parameters: {len(hici_params)}")
-                    print(f"\n   Other Parameters (embed, norm):")
+                    print(f"     Num Parameters: {len(memory_params)}")
+                    print(f"\n  📚 Other Parameters (embed, norm):")
                     print(f"     Max Gradient Norm: None (no clipping)")
                     print(f"     Num Parameters: {len(other_params)}")
                     print("=" * 70 + "\n")
@@ -224,15 +228,18 @@ class LayeredLRTrainer(Trainer):
 
         return loss
 
+
 DEFAULT_PAD_TOKEN = "[PAD]"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
 
+
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="EleutherAI/pythia-1.4b-deduped")
     model_type: Optional[str] = field(default="llama")
+
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
@@ -269,70 +276,64 @@ class TrainingArguments(transformers.TrainingArguments):
     num_local_slots: int = field(
         default=8,
         metadata={
-            "help": "Number of local local query slots for capturing chunk-level context (default: 8)."
+            "help": "Number of Local Representation Slots for capturing chunk-level context (default: 8)."
         },
     )
     global_slots: int = field(
         default=16,
         metadata={
-            "help": "Number of HiCI slots for capturing document-level context (default: 16)."
+            "help": "Number of Global Representation Slots for capturing document-level context (default: 16)."
         },
     )
     num_chunks: int = field(
         default=4,
         metadata={
-            "help": "Number of chunks to split each sequence into for HiCI."
+            "help": "Number of chunks to split each sequence into for hierarchical memory."
         },
     )
-    use_local_summary: bool = field(
+    use_local_constructor: bool = field(
         default=True,
-        metadata={"help": "Whether to use local representation extraction."},
+        metadata={"help": "Whether to use local memory attention."},
     )
-    use_global_repr: bool = field(
+    use_global_integrator: bool = field(
         default=True,
-        metadata={"help": "Whether to use HiCI aggregator."},
+        metadata={"help": "Whether to use hierarchical memory aggregator."},
     )
-    use_flash_attn_in_hici: bool = field(
+    use_local_constructor_flash: bool = field(
         default=False,
         metadata={"help": "Whether to use flash attn in LocalConstructorFlash."},
     )
-    use_flash_plus: Optional[bool] = field(
-        default=True,
-        metadata={"help": "Whether to use LocalConstructorFlashPlus."},
-    )
-    use_flash_plus_norope: Optional[bool] = field(
-        default=False,
-        metadata={
-        "help": "： HiCI RoPE， RoPE plus "
-        },
-    )
-    forward_flashattn_optimized: Optional[bool] = field(
-        default=False,
-        metadata={"help": "forward_flashattn_optimized"},
-    )
     use_hierarchical_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "，+"},
+        metadata={"help": "Whether to use the combined hierarchical forward (local memory + global)."},
     )
     use_llama_init: Optional[bool] = field(
         default=False,
         metadata={
-        "help": "C：HiCI Q/K/V（Warm Initialization）"
+            "help": "Warm-initialize memory module Q/K/V projections from LLaMA pretrained weights."
         },
     )
     num_heads: int = field(
         default=32,
-        metadata={"help": "Number of attention heads in the HiCI module."},
+        metadata={"help": "Number of attention heads in the memory module."},
     )
     use_bottleneck: bool = field(
         default=True,
         metadata={
-            "help": "Whether to use bottleneck in HiCI aggregator."
+            "help": "Whether to use bottleneck in hierarchical memory aggregator."
         },
     )
     bottleneck_dim: int = field(
         default=4096,
-        metadata={"help": "Bottleneck dimension for representation compression."},
+        metadata={"help": "Bottleneck dimension for memory compression."},
+    )
+    shared_compress_dim: int = field(
+        default=128,
+        metadata={
+            "help": "Shared compressor intermediate dimension for GlobalIntegratorShared "
+            "(only used when use_shared_compressor=True, default: 128). "
+            "Recommended: 128 for 7B, 160 for 13B."
+        },
     )
     recurrence_size: Optional[int] = field(
         default=128,
@@ -343,7 +344,7 @@ class TrainingArguments(transformers.TrainingArguments):
     hici_lr: Optional[float] = field(
         default=None,
         metadata={
-            "help": "Separate learning rate for HiCI parameters. "
+            "help": "Separate learning rate for global memory parameters. "
             "If None, uses the same learning rate as other parameters. "
             "Recommended: 2e-4 to 5e-4 (10-25x base lr)."
         },
@@ -351,12 +352,13 @@ class TrainingArguments(transformers.TrainingArguments):
     hici_grad_clip: Optional[float] = field(
         default=None,
         metadata={
-            "help": "Separate gradient clipping for HiCI module parameters. "
+            "help": "Separate gradient clipping for memory module parameters. "
             "If None, uses the same max_grad_norm as other parameters. "
             "Recommended: 0.1 to 0.3 (stricter than default 1.0). "
-            "This helps prevent gradient explosion in HiCI modules."
+            "This helps prevent gradient explosion in memory modules."
         },
     )
+
 
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
@@ -384,9 +386,15 @@ def smart_tokenizer_and_embedding_resize(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
+
 def tokenize_fn(tokenizer, example):
     """
+    Multiprocess-friendly tokenize function (supports num_proc > 1).
 
+    Features:
+    1. Smart document grouping (avoids hangs on very long docs)
+    2. EOS concatenation + padding (100% data utilization)
+    3. Returns Python lists (multiprocess-safe, avoids H100 hangs)
     """
     context_length = tokenizer.model_max_length
     MAX_CHARS_PER_SEGMENT = 200_000
@@ -394,13 +402,16 @@ def tokenize_fn(tokenizer, example):
     texts = example["text"]
     all_chunks = []
 
+    # Group documents by character length to avoid processing very long docs together
     current_batch = []
     current_length = 0
 
     for text in texts:
         text_len = len(text)
 
+        # If a single doc exceeds the segment limit, process it alone
         if text_len > MAX_CHARS_PER_SEGMENT:
+            # Flush current batch first
             if current_batch:
                 combined = tokenizer.eos_token.join(current_batch)
                 chunks = _tokenize_and_chunk(tokenizer, combined, context_length)
@@ -408,6 +419,7 @@ def tokenize_fn(tokenizer, example):
                 current_batch = []
                 current_length = 0
 
+            # Process the oversized doc in segments
             num_segments = (
                 text_len + MAX_CHARS_PER_SEGMENT - 1
             ) // MAX_CHARS_PER_SEGMENT
@@ -418,6 +430,7 @@ def tokenize_fn(tokenizer, example):
                 chunks = _tokenize_and_chunk(tokenizer, segment, context_length)
                 all_chunks.extend(chunks)
 
+        # If adding this doc would exceed the threshold, flush the current batch first
         elif current_length + text_len > MAX_CHARS_PER_SEGMENT and current_batch:
             combined = tokenizer.eos_token.join(current_batch)
             chunks = _tokenize_and_chunk(tokenizer, combined, context_length)
@@ -429,6 +442,7 @@ def tokenize_fn(tokenizer, example):
             current_batch.append(text)
             current_length += text_len
 
+    # Flush the last batch
     if current_batch:
         combined = tokenizer.eos_token.join(current_batch)
         chunks = _tokenize_and_chunk(tokenizer, combined, context_length)
@@ -436,12 +450,15 @@ def tokenize_fn(tokenizer, example):
 
     return {"input_ids": all_chunks}
 
+
 def _tokenize_and_chunk(tokenizer, text, context_length):
     """
+    Tokenize text and split into fixed-length chunks.
 
     Returns:
         List[List[int]]: chunks of input_ids
     """
+    # Tokenize (return Python list for multiprocess safety)
     outputs = tokenizer(
         text,
         truncation=False,
@@ -451,6 +468,7 @@ def _tokenize_and_chunk(tokenizer, text, context_length):
 
     input_ids = outputs["input_ids"]
 
+    # Pad to a multiple of context_length for 100% data utilization
     total_length = len(input_ids)
     if total_length % context_length != 0:
         padding_length = context_length - (total_length % context_length)
@@ -459,6 +477,7 @@ def _tokenize_and_chunk(tokenizer, text, context_length):
         )
         input_ids = input_ids + [pad_token_id] * padding_length
 
+    # Split into chunks
     num_chunks = len(input_ids) // context_length
     chunks = []
     for i in range(num_chunks):
@@ -469,9 +488,13 @@ def _tokenize_and_chunk(tokenizer, text, context_length):
 
     return chunks
 
+
 def train():
     # Set random seed for reproducibility (before any random operations)
     # Same as eval_distributed.py for consistency
+    # import random
+    # import numpy as np
+    # seed = 42  # Using standard seed (eval uses 2, but 42 is more common)
     # torch.manual_seed(seed)
     # random.seed(seed)
     # np.random.seed(seed)
@@ -488,10 +511,6 @@ def train():
         )
         replace_llama_attn(
             use_flash_attn=training_args.use_flash_attn,
-            use_full=training_args.use_full_attn,
-            use_optimized=training_args.forward_flashattn_optimized,
-            use_optimized_plus=training_args.use_flash_plus,
-            use_optimized_plus_norope=training_args.use_flash_plus_norope,
             use_hierarchical_forward=training_args.use_hierarchical_forward,
         )
 
@@ -530,7 +549,7 @@ def train():
         from yarn_rope_official import replace_rope_with_yarn
 
         print("\n" + "=" * 80)
-        print(" Replacing Position Interpolation (PI) with YaRN")
+        print("🚀 Replacing Position Interpolation (PI) with YaRN")
         print("=" * 80)
         print(f"  Original context length: {orig_ctx_len}")
         print(f"  Target context length:   {training_args.model_max_length}")
@@ -572,21 +591,23 @@ def train():
     )
 
     # ========================================================================
-    # Register HiCI Module (CRITICAL: Before optimizer initialization!)
+    # Register Global Memory Module (CRITICAL: Before optimizer initialization!)
     # ========================================================================
     register_hici_to_model(
         model,
         num_local_slots=training_args.num_local_slots,
+        # recurrence_size=training_args.recurrence_size,
         global_slots=training_args.global_slots,
         num_chunks=training_args.num_chunks,
         num_heads=training_args.num_heads,
         use_bottleneck=training_args.use_bottleneck,
         bottleneck_dim=training_args.bottleneck_dim,
-        use_local_summary=training_args.use_local_summary,
-        use_hierarchical=training_args.use_global_repr,
-        use_flash_plus=training_args.use_flash_plus,
-        use_flash=training_args.use_flash_attn_in_hici,
-        use_llama_init=training_args.use_llama_init,
+        use_local_constructor=training_args.use_local_constructor,
+        use_global_integrator=training_args.use_global_integrator,
+        use_local_constructor_flash=training_args.use_local_constructor_flash,
+        use_llama_init=training_args.use_llama_init,  # warm-init from LLaMA weights
+        shared_compress_dim=training_args.shared_compress_dim,
+        # ds_config_path=training_args.deepspeed,  # disabled: ZeRO-3 sharding incompatible with module init
     )
     print("=" * 70 + "\n")
 
@@ -594,37 +615,36 @@ def train():
     if rank > 0:
         barrier()
 
+    # dataset = load_dataset("ZengXiangyu/RedPajama-Data-1T-Sample", cache_dir=training_args.cache_dir)
     from datasets import load_from_disk
 
-    dataset = load_from_disk(
-        "/path/to/cache/datasets"
-    )
+    dataset = load_from_disk("./cache/datasets")
 
+    # Process dataset with adaptive batch sizes based on estimated token count
+    # (1 char ≈ 0.3 tokens conservatively; batch * tokens <= 100K is the safety threshold)
     print("=" * 70)
-    print("（token）")
+    print("Processing dataset with adaptive batch sizes by estimated token count")
     print("=" * 70)
 
-    print("\n 1: token...")
+    print("\nStep 1: Grouping by estimated token count...")
     very_short_docs = dataset.filter(
         lambda x: len(x["text"]) < 20_000, num_proc=128
-    )
+    )  # <6K tokens, batch=100
     short_docs = dataset.filter(
         lambda x: 20_000 <= len(x["text"]) < 100_000, num_proc=128
-    )
+    )  # 6K-30K tokens, batch=20
     medium_docs = dataset.filter(
         lambda x: 100_000 <= len(x["text"]) < 300_000, num_proc=128
-    )
+    )  # 30K-90K tokens, batch=3
     long_docs = dataset.filter(
         lambda x: len(x["text"]) >= 300_000, num_proc=128
     )  # >90K tokens, batch=1
-    print(f" (<20K, <6K tokens): {len(very_short_docs['train']):,} ")
-    print(f" (20K-100K, 6K-30K tokens): {len(short_docs['train']):,} ")
-    print(
-    f" (100K-300K, 30K-90K tokens): {len(medium_docs['train']):,} "
-    )
-    print(f" (>=300K, >90K tokens): {len(long_docs['train']):,} ")
+    print(f"  Very short (<20K chars, ~<6K tokens): {len(very_short_docs['train']):,}")
+    print(f"  Short (20K-100K chars, ~6K-30K tokens): {len(short_docs['train']):,}")
+    print(f"  Medium (100K-300K chars, ~30K-90K tokens): {len(medium_docs['train']):,}")
+    print(f"  Long (>=300K chars, ~>90K tokens): {len(long_docs['train']):,}")
 
-    print("\n 2: batch_size ...")
+    print("\nStep 2: Tokenizing with per-group batch sizes...")
     from datasets import concatenate_datasets
 
     very_short_processed = very_short_docs.map(
@@ -634,6 +654,7 @@ def train():
         num_proc=128,
         remove_columns=["text", "meta"],
     )
+    print(f"  Very short docs done")
 
     short_processed = short_docs.map(
         partial(tokenize_fn, tokenizer),
@@ -642,6 +663,7 @@ def train():
         num_proc=128,
         remove_columns=["text", "meta"],
     )
+    print(f"  Short docs done")
 
     medium_processed = medium_docs.map(
         partial(tokenize_fn, tokenizer),
@@ -650,6 +672,7 @@ def train():
         num_proc=128,
         remove_columns=["text", "meta"],
     )
+    print(f"  Medium docs done")
 
     long_processed = long_docs.map(
         partial(tokenize_fn, tokenizer),
@@ -658,8 +681,9 @@ def train():
         num_proc=128,
         remove_columns=["text", "meta"],
     )
+    print(f"  Long docs done")
 
-    print("\n 3: ...")
+    print("\nStep 3: Concatenating and shuffling...")
     dataset = concatenate_datasets(
         [
             very_short_processed["train"],
@@ -670,7 +694,7 @@ def train():
     )
     dataset = dataset.shuffle(seed=42)
     dataset = {"train": dataset}
-    print(f" : {len(dataset['train']):,}")
+    print(f"  Final samples: {len(dataset['train']):,}")
     print("=" * 70)
 
     if rank == 0:
@@ -682,7 +706,8 @@ def train():
 
     # ========================================================================
     # Setup LoRA (if enabled)
-    # This ensures HiCI parameters are already in model.parameters()
+    # Note: LoRA is configured AFTER global memory registration
+    # This ensures global memory parameters are already in model.parameters()
     # ========================================================================
     if training_args.low_rank_training:
         if model_args.model_type == "gpt-neox":
@@ -724,9 +749,8 @@ def train():
             elif (
                 "local_constructor" in n
                 or "global_integrator" in n
-                or "global_integrator" in n
             ):
-                category = "HiCI Modules"
+                category = "Memory Modules"
             elif "embed" in n.lower():
                 category = "Embeddings"
             elif "norm" in n.lower():
@@ -747,55 +771,55 @@ def train():
                 f"  {category:20s}: {count:15,} params ({count / total_trainable * 100:5.2f}%)"
             )
 
-        if "HiCI Modules" in trainable_params_dict:
-            local_constructor_count = 0
+        if "Memory Modules" in trainable_params_dict:
+            global_memory_count = 0
             hierarchical_count = 0
             for n, p in model.named_parameters():
                 if p.requires_grad:
                     if "local_constructor" in n:
-                        local_constructor_count += p.numel()
-                    elif "global_integrator" in n or "global_integrator" in n:
+                        global_memory_count += p.numel()
+                    elif "global_integrator" in n:
                         hierarchical_count += p.numel()
 
-            if local_constructor_count > 0 or hierarchical_count > 0:
-                print(f"    {' LocalConstructor':20s}: {local_constructor_count:15,} params")
+            if global_memory_count > 0 or hierarchical_count > 0:
+                print(f"    {'└─ GlobalMemory':20s}: {global_memory_count:15,} params")
                 print(
-                    f"    {' HierarchicalAgg':20s}: {hierarchical_count:15,} params"
+                    f"    {'└─ HierarchicalAgg':20s}: {hierarchical_count:15,} params"
                 )
 
-        print(f"  {'' * 20}   {'' * 15}   {'' * 7}")
+        print(f"  {'─' * 20}   {'─' * 15}   {'─' * 7}")
         print(
             f"  {'Total Trainable':20s}: {total_trainable:15,} params ({total_trainable / total_params * 100:5.2f}% of total)"
         )
         print(f"  {'Total Params':20s}: {total_params:15,} params")
 
-    # Warning if HiCI modules are not properly configured
-    has_hici_in_trainable = "local_constructor" in training_args.trainable_params
+    # Warning if memory modules are not properly configured
+    has_memory_in_trainable = "local_constructor" in training_args.trainable_params
     has_hierarchical_in_trainable = "hierarchical" in training_args.trainable_params
-    has_hici_params = "HiCI Modules" in trainable_params_dict
+    has_memory_params = "Memory Modules" in trainable_params_dict
 
     if rank == 0:
-        if has_hici_in_trainable and not has_hici_params:
+        if has_memory_in_trainable and not has_memory_params:
             print(
-                "\n  WARNING: 'local_constructor' specified in --trainable_params but no HiCI parameters found!"
+                "\n⚠️  WARNING: 'local_constructor' specified in --trainable_params but no memory parameters found!"
             )
-        elif not has_hici_in_trainable and has_hici_params:
+        elif not has_memory_in_trainable and has_memory_params:
             print(
-                "\n  WARNING: HiCI module parameters found but not in --trainable_params!"
+                "\n⚠️  WARNING: Memory module parameters found but not in --trainable_params!"
             )
             print(
-                "    Add '--trainable_params \"embed,norm,local_constructor,hierarchical\"' to enable training."
+                "    Add '--trainable_params \"embed,norm,local_constructor,global_integrator\"' to enable training."
             )
 
-        # Check if hierarchical is missing when using HiCI
-        if training_args.use_global_repr:
-            if has_hici_in_trainable and not has_hierarchical_in_trainable:
+        # Check if hierarchical is missing when using hierarchical memory
+        if training_args.use_global_integrator:
+            if has_memory_in_trainable and not has_hierarchical_in_trainable:
                 print(
-                    "\n  WARNING: Using HiCI but 'hierarchical' not in --trainable_params!"
+                    "\n⚠️  WARNING: Using hierarchical memory but 'hierarchical' not in --trainable_params!"
                 )
                 print("    HierarchicalAggregator parameters may not be trained!")
                 print(
-                    "    Recommended: '--trainable_params \"embed,norm,local_constructor,hierarchical\"'"
+                    "    Recommended: '--trainable_params \"embed,norm,local_constructor,global_integrator\"'"
                 )
 
         print("=" * 70 + "\n")
@@ -804,6 +828,7 @@ def train():
     model.enable_input_require_grads()  # required for gradient checkpointing
     model.gradient_checkpointing_enable()  # enable gradient checkpointing
 
+    # Log checkpoint resume status
     if rank == 0:
         import glob
 
@@ -816,21 +841,19 @@ def train():
             )
 
             print("\n" + "=" * 80)
-            print(" Checkpoint")
+            print("Existing checkpoint detected — resuming training")
             print("=" * 80)
-            print(f" Output : {training_args.output_dir}")
-            print(f" {len(checkpoint_dirs)} checkpoints")
-            print(f" HuggingFace Trainer checkpoint :")
-            print(f"   → {latest_checkpoint}")
-            print()
-            print(f"   - HiCI local query slots: {training_args.num_local_slots}")
+            print(f"Output dir: {training_args.output_dir}")
+            print(f"Found {len(checkpoint_dirs)} checkpoint(s)")
+            print(f"HuggingFace Trainer will resume from: {latest_checkpoint}")
+            print(f"   - Working Memory slots: {training_args.num_local_slots}")
             print("=" * 80 + "\n")
         else:
             print("\n" + "=" * 80)
-            print(" （ checkpoints）")
+            print("Training from scratch (no existing checkpoints)")
             print("=" * 80)
-            print(f" Output : {training_args.output_dir}")
-            print(f"   - HiCI local query slots: {training_args.num_local_slots}")
+            print(f"Output dir: {training_args.output_dir}")
+            print(f"   - Working Memory slots: {training_args.num_local_slots}")
             print("=" * 80 + "\n")
 
     # ========================================================================
@@ -838,9 +861,10 @@ def train():
     # At this point, model.parameters() includes:
     # 1. Base model parameters (frozen if LoRA)
     # 2. LoRA adapters (trainable)
-    # 3. Global HiCI parameters (trainable, ~1.6B for 16 slots)
+    # 3. Global memory parameters (trainable, ~1.6B for 16 slots)
     # 4. Embeddings & LayerNorm (trainable if in trainable_params)
-    # Uses LayeredLRTrainer to support different learning rates for HiCI
+    #
+    # Uses LayeredLRTrainer to support different learning rates for global memory
     # ========================================================================
     trainer = LayeredLRTrainer(
         model=model,
@@ -850,9 +874,62 @@ def train():
         eval_dataset=None,
         data_collator=data_collator,
     )
+
+    # ========================================================================
+    # Verify DeepSpeed Stage 3 sharding of memory modules
+    # ========================================================================
+    if torch.distributed.is_initialized():
+        rank = torch.distributed.get_rank()
+        world_size = torch.distributed.get_world_size()
+
+        memory_params_info = []
+        total_memory_numel = 0
+
+        for name, param in model.named_parameters():
+            if "local_constructor" in name or "global_integrator" in name:
+                memory_params_info.append({
+                    "name": name.split(".")[-2] + "." + name.split(".")[-1],
+                    "shape": tuple(param.shape),
+                    "numel": param.numel(),
+                    "device": str(param.device),
+                })
+                total_memory_numel += param.numel()
+
+        # Print rank-by-rank to avoid interleaved output
+        for print_rank in range(world_size):
+            if rank == print_rank:
+                if rank == 0:
+                    print("\n" + "=" * 80)
+                    print("DeepSpeed memory module sharding check")
+                    print("=" * 80)
+                    print(f"World Size: {world_size} GPUs")
+                    print("-" * 80)
+
+                print(f"\n[Rank {rank}] Memory params: {total_memory_numel:,} ({total_memory_numel / 1e6:.2f}M)")
+
+                for i, info in enumerate(memory_params_info[:3]):
+                    print(f"  - {info['name']}: shape={info['shape']}, numel={info['numel']:,}, device={info['device']}")
+                if len(memory_params_info) > 3:
+                    print(f"  ... {len(memory_params_info)} memory params total")
+
+                if rank == 0:
+                    expected_sharded = total_memory_numel // world_size
+                    print(f"\nSharding analysis:")
+                    print(f"  Expected per GPU (if sharded): ~{expected_sharded:,} ({expected_sharded / 1e6:.2f}M)")
+                    print(f"  Actual per GPU: {total_memory_numel:,} ({total_memory_numel / 1e6:.2f}M)")
+                    if total_memory_numel > expected_sharded * 1.5:
+                        print(f"  WARNING: Memory modules may not be sharded — each GPU holds a full copy.")
+                    else:
+                        print(f"  Memory modules correctly sharded")
+                    print("=" * 80 + "\n")
+
+            torch.distributed.barrier()
+    # ========================================================================
+
     trainer.train()
     trainer.save_state()
     trainer.save_model(output_dir=training_args.output_dir)
+
 
 if __name__ == "__main__":
     train()

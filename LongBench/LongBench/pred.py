@@ -291,9 +291,8 @@ def load_model_and_tokenizer(
                 num_heads=8,
                 use_bottleneck=True,
                 bottleneck_dim=512,
-                use_flash_plus=False,
-                use_flash=False,
-                use_hierarchical=True,
+                use_local_constructor_flash=False,
+                use_global_integrator=True,
                 use_shared_compressor=True,
                 shared_compress_dim=128,
             )

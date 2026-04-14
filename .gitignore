@@ -52,6 +52,9 @@ tensorboard.log
 !requirements.txt
 !README*.txt
 
+# Claude Code generated files
+CLAUDE.md
+
 # Temporary files
 *.tmp
 *.temp

@@ -1,3 +1,4 @@
+# Written by Yukang Chen
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,10 +18,11 @@ import argparse
 
 def parse_config():
     parser = argparse.ArgumentParser(description='arg parser')
-    parser.add_argument('--checkpoint_path', type=str, default="/path/to/checkpoint-1000")
+    parser.add_argument('--checkpoint_path', type=str, default="/dataset/models/checkpoint-1000")
     parser.add_argument('--trainable_params', type=str, default="embed,norm")
     args = parser.parse_args()
     return args
+
 
 def main(args):
     path = args.checkpoint_path
