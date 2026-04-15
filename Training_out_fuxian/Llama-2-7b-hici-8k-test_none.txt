@@ -1,396 +1,0 @@
-train_fine_tune_hici.sh: line 1: /home/562/xz2053/venv/zxy/bin/activate: No such file or directory
-================================
-📦 基础模型: /scratch/sh89/xz2053/projects/llm-memory/models/Llama-2-7b-hf
-📁 模型输出目录: ./checkpoints/Llama-2-7b-hici-8k-test
-🤖 GPU数目: 4
-📊 最大长度: 8192
-🔢 Chunk分组数: 8
-⚙️ 可训练参数: embed,norm,local_constructor,global_integrator
-🔥 预热步数: 20
-💡 记忆学习率: 2e-4
-💡 deepspeed配置: ds_configs/stage2.json
-🤖 记忆模块梯度剪裁: 0.3
-🎯 使用低秩训练 LongLoRA: True
---------------记忆属性设置-----------------
-📝 使用局部摘要记忆机制: True
-🔁 使用高层全局记忆机制: True
-🌐 Global Representation Slots: 4
-🧠 Local Representation Slots: 8
-🧠 记忆的kv是否从Llama参数初始化: False
-🎯 使用 Bottleneck: True
-🔢 Memory Attention Heads: 8
-🧩 Bottleneck Dimension: 512
-🧩 Shared Compress Dim: 128
---------------记忆类和前馈函数设置-----------------
-🧠 调用记忆类: LocalConstructorFlash kv独立 + flash attn: False
-📝 调用函数 forward_flashattn_hierarchical 局部+全局: True
-================================
-
-Port 38493 not in use
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/transformers/utils/generic.py:311: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
-  torch.utils._pytree._register_pytree_node(
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/transformers/utils/generic.py:311: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
-  torch.utils._pytree._register_pytree_node(
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/transformers/utils/generic.py:311: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
-  torch.utils._pytree._register_pytree_node(
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/transformers/utils/generic.py:311: FutureWarning: `torch.utils._pytree._register_pytree_node` is deprecated. Please use `torch.utils._pytree.register_pytree_node` instead.
-  torch.utils._pytree._register_pytree_node(
-[2026-04-12 05:09:32,242] [INFO] [real_accelerator.py:219:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-[2026-04-12 05:09:32,242] [INFO] [real_accelerator.py:219:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-[2026-04-12 05:09:32,242] [INFO] [real_accelerator.py:219:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-[2026-04-12 05:09:32,244] [INFO] [real_accelerator.py:219:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-Warning: The cache directory for DeepSpeed Triton autotune, /home/562/xz2053/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.
-Warning: The cache directory for DeepSpeed Triton autotune, /home/562/xz2053/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.
-Warning: The cache directory for DeepSpeed Triton autotune, /home/562/xz2053/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.Warning: The cache directory for DeepSpeed Triton autotune, /home/562/xz2053/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.
-
-[2026-04-12 05:09:35,081] [INFO] [comm.py:652:init_distributed] cdb=None
-[2026-04-12 05:09:35,082] [INFO] [comm.py:652:init_distributed] cdb=None
-[2026-04-12 05:09:35,085] [INFO] [comm.py:652:init_distributed] cdb=None
-[2026-04-12 05:09:35,085] [INFO] [comm.py:683:init_distributed] Initializing TorchBackend in DeepSpeed with backend nccl
-/scratch/sh89/xz2053/projects/HiCI/llama_attn_hici.py:7862: UserWarning: Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward.ref: https://github.com/HazyResearch/flash-attention/issues/190#issuecomment-1523359593
-  warnings.warn(
-   🧪 Using forward_flashattn_hierarchical (training mode)
-[2026-04-12 05:09:35,201] [INFO] [comm.py:652:init_distributed] cdb=None
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:07<00:07,  7.19s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:07<00:07,  7.04s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:07<00:07,  7.15s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.45s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.87s/it]
-Using pad_token, but it is not set yet.
-Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.37s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.77s/it]
-Using pad_token, but it is not set yet.
-Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.42s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.83s/it]
-Using pad_token, but it is not set yet.
-Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.69s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:11<00:00,  5.43s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:11<00:00,  5.92s/it]
-Using pad_token, but it is not set yet.
-
-================================================================================
-🔧 Registering: Local Memory + Hierarchical Aggregator
-   Model dtype: torch.bfloat16
-⚠️  LocalConstructorMulti Fallback: Initialized memory_slots with std=0.015625
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-   ✅ GlobalIntegratorShared initialized (共享压缩层优化版)
-       - Design: Shared Compressor + Statistical Expansion + Lightweight MHA
-       - Global slots: 4
-       - Shared compress dim: 128
-       - Final compress dim: 512
-       - Num heads: 8
-       - Output scale (init): 0.1
-       - Stat compression params: 591,104 (0.59M)
-       - Total params/layer: 3,738,881 (3.7M)
-       - 🎯 Saved 73% compared to original
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
-======================================================================
-
-
-================================================================================
-✅ Memory Module Registration Complete
-================================================================================
-Model: 7,127,552,032 params (7.13B)
-Layers: 32
-
-Registered Modules:
-  ✓ Local Memory (269,484,032 params)
-  ✓ Hierarchical Aggregator (119,644,192 params)
-
-Total Memory Params: 389,128,224 (5.46%)
-================================================================================
-
-======================================================================
-
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
-  table = cls._concat_blocks(blocks, axis=0)
-======================================================================
-智能分组处理数据集（基于token数优化）
-======================================================================
-
-步骤 1: 按预估token数分组...
-======================================================================
-
-  超短文档(<20K字符, 预估<6K tokens): 892,302 个
-  短文档(20K-100K字符, 预估6K-30K tokens): 35,531 个
-  中文档(100K-300K字符, 预估30K-90K tokens): 2,226 个
-  长文档(>=300K字符, 预估>90K tokens): 455 个
-
-步骤 2: 用不同 batch_size 处理...
-  超短文档处理完成
-  短文档处理完成
-  中文档处理完成
-  长文档处理完成
-
-步骤 3: 合并并打乱数据...
-  最终样本数: 184,921
-======================================================================
-======================================================================
-
-{'train': Dataset({
-    features: ['input_ids'],
-    num_rows: 184921
-})}
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
-  table = cls._concat_blocks(blocks, axis=0)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
-  table = cls._concat_blocks(blocks, axis=0)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
-  table = cls._concat_blocks(blocks, axis=0)
-======================================================================
-智能分组处理数据集（基于token数优化）
-======================================================================
-
-步骤 1: 按预估token数分组...
-======================================================================
-智能分组处理数据集（基于token数优化）
-======================================================================
-
-步骤 1: 按预估token数分组...
-======================================================================
-智能分组处理数据集（基于token数优化）
-======================================================================
-
-步骤 1: 按预估token数分组...
-  超短文档(<20K字符, 预估<6K tokens): 892,302 个
-  短文档(20K-100K字符, 预估6K-30K tokens): 35,531 个
-  中文档(100K-300K字符, 预估30K-90K tokens): 2,226 个
-  长文档(>=300K字符, 预估>90K tokens): 455 个
-
-步骤 2: 用不同 batch_size 处理...
-  超短文档(<20K字符, 预估<6K tokens): 892,302 个
-  短文档(20K-100K字符, 预估6K-30K tokens): 35,531 个
-  中文档(100K-300K字符, 预估30K-90K tokens): 2,226 个
-  长文档(>=300K字符, 预估>90K tokens): 455 个
-
-步骤 2: 用不同 batch_size 处理...
-  超短文档(<20K字符, 预估<6K tokens): 892,302 个
-  短文档(20K-100K字符, 预估6K-30K tokens): 35,531 个
-  中文档(100K-300K字符, 预估30K-90K tokens): 2,226 个
-  长文档(>=300K字符, 预估>90K tokens): 455 个
-
-步骤 2: 用不同 batch_size 处理...
-  超短文档处理完成
-  超短文档处理完成
-  超短文档处理完成
-  短文档处理完成
-  短文档处理完成
-  短文档处理完成
-  中文档处理完成
-  中文档处理完成
-  中文档处理完成
-  长文档处理完成
-
-步骤 3: 合并并打乱数据...
-  长文档处理完成
-
-步骤 3: 合并并打乱数据...
-  长文档处理完成
-
-步骤 3: 合并并打乱数据...
-  最终样本数: 184,921
-======================================================================
-{'train': Dataset({
-    features: ['input_ids'],
-    num_rows: 184921
-})}
-  最终样本数: 184,921
-======================================================================
-{'train': Dataset({
-    features: ['input_ids'],
-    num_rows: 184921
-})}
-  最终样本数: 184,921
-======================================================================
-{'train': Dataset({
-    features: ['input_ids'],
-    num_rows: 184921
-})}
-
-======================================================================
-Trainable Parameters Summary
-======================================================================
-  Embeddings          :     131,076,096 params (24.52%)
-  LayerNorm           :         266,240 params ( 0.05%)
-  LoRA Adapters       :      14,155,776 params ( 2.65%)
-  Memory Modules      :     389,128,224 params (72.79%)
-    └─ GlobalMemory     :     274,202,624 params
-    └─ HierarchicalAgg  :     120,692,768 params
-  ────────────────────   ───────────────   ───────
-  Total Trainable     :     534,626,336 params ( 7.49% of total)
-  Total Params        :   7,141,707,808 params
-
-⚠️  WARNING: Using hierarchical memory but 'hierarchical' not in --trainable_params!
-    HierarchicalAggregator parameters may not be trained!
-    Recommended: '--trainable_params "embed,norm,local_constructor,global_integrator"'
-======================================================================
-
-
-================================================================================
-✅ 从头开始训练（没有旧 checkpoints）
-================================================================================
-📁 Output 目录: ./checkpoints/Llama-2-7b-hici-8k-test
-   - Working Memory slots: 8
-================================================================================
-
-
-================================================================================
-🔍 DeepSpeed 参数分片验证 (Memory Module Sharding Check)
-================================================================================
-World Size: 4 GPUs
---------------------------------------------------------------------------------
-
-[Rank 0] Memory 参数统计:
-  总参数量: 394,895,392 (394.90M)
-  - local_constructor.memory_slots: shape=(8, 4096), numel=32,768, device=cpu
-  - q_proj.weight: shape=(512, 4096), numel=2,097,152, device=cpu
-  - default.weight: shape=(8, 4096), numel=32,768, device=cpu
-  ... 共 1088 个 memory 参数
-
-📊 分片分析:
-  如果正确分片，每张卡应有: ~98,723,848 (98.72M) 参数
-  实际每张卡显示: 394,895,392 (394.90M) 参数
-  ⚠️  警告: Memory 模块可能未被正确分片！每张卡持有完整副本。
-================================================================================
-
-
-[Rank 1] Memory 参数统计:
-  总参数量: 394,895,392 (394.90M)
-  - local_constructor.memory_slots: shape=(8, 4096), numel=32,768, device=cpu
-  - q_proj.weight: shape=(512, 4096), numel=2,097,152, device=cpu
-  - default.weight: shape=(8, 4096), numel=32,768, device=cpu
-  ... 共 1088 个 memory 参数
-
-[Rank 2] Memory 参数统计:
-  总参数量: 394,895,392 (394.90M)
-  - local_constructor.memory_slots: shape=(8, 4096), numel=32,768, device=cpu
-  - q_proj.weight: shape=(512, 4096), numel=2,097,152, device=cpu
-  - default.weight: shape=(8, 4096), numel=32,768, device=cpu
-  ... 共 1088 个 memory 参数
-
-[Rank 3] Memory 参数统计:
-  总参数量: 394,895,392 (394.90M)
-  - local_constructor.memory_slots: shape=(8, 4096), numel=32,768, device=cpu
-  - q_proj.weight: shape=(512, 4096), numel=2,097,152, device=cpu
-  - default.weight: shape=(8, 4096), numel=32,768, device=cpu
-  ... 共 1088 个 memory 参数
-
-======================================================================
-Creating Optimizer with Layered Learning Rates
-======================================================================
-
-  📊 Memory Module Parameters Breakdown:
-  --------------------------------------------------------------------
-    🧠 LocalMemory:
-       Count: 274,202,624 (51.29%)
-    🏗️  HierarchicalAggregator:
-       Count: 120,692,768 (22.58%)
-  --------------------------------------------------------------------
-    📦 Total Memory Modules: 394,895,392 (73.86%)
-    📝 Learning Rate: 2.00e-04
-
-  📚 Other Trainable Parameters:
-    Count: 139,730,944 (26.14%)
-    Learning Rate: 2.00e-05
-
-  ⚡ Learning Rate Ratio: 10.0x
-======================================================================
-
-  0%|          | 0/1000 [00:00<?, ?it/s]You're using a LlamaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a LlamaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a LlamaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a LlamaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py:600: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
-  return fn(*args, **kwargs)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py:600: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
-  return fn(*args, **kwargs)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py:600: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
-  return fn(*args, **kwargs)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py:600: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
-  return fn(*args, **kwargs)
-
-================================================================================
-Hierarchical Memory (Optimized: Q=[chunk], K/V=[memories,chunk])
-================================================================================
-  use_higher_global : True
-  use_local_memory  : True
-  Mode 3: Q=[chunk], K/V=[higher_global, local_i, chunk]
-================================================================================
-
-[forward_flashattn_hierarchical] Fixed ratio grouping: 4 groups, segment_size=2048 tokens (ratio=0.25)
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
-  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
-  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
-  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
-/scratch/iu02/xz2053/hici_env/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
-  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
-
-======================================================================
-Gradient Clipping Configuration
-======================================================================
-  🧠 Memory Modules:
-     Max Gradient Norm: 0.3
-     Num Parameters: 0
-
-  📚 Other Parameters (embed, norm):
-     Max Gradient Norm: None (no clipping)
-     Num Parameters: 0
-======================================================================
-
-  0%|          | 1/1000 [00:20<5:36:36, 20.22s/it]                                                  {'loss': 2.7057, 'learning_rate': 1e-05, 'epoch': 0.0}
-  0%|          | 1/1000 [00:20<5:36:36, 20.22s/it]  0%|          | 2/1000 [00:40<5:32:12, 19.97s/it]                                                  {'loss': 2.6056, 'learning_rate': 2e-05, 'epoch': 0.0}
-  0%|          | 2/1000 [00:40<5:32:12, 19.97s/it]  0%|          | 3/1000 [00:59<5:31:10, 19.93s/it]                                                  {'loss': 2.6835, 'learning_rate': 3e-05, 'epoch': 0.0}
-  0%|          | 3/1000 [00:59<5:31:10, 19.93s/it]  0%|          | 4/1000 [01:19<5:30:42, 19.92s/it]                                                  {'loss': 2.3759, 'learning_rate': 4e-05, 'epoch': 0.0}
-  0%|          | 4/1000 [01:19<5:30:42, 19.92s/it]  0%|          | 5/1000 [01:39<5:30:24, 19.92s/it]                                                  {'loss': 2.2088, 'learning_rate': 5e-05, 'epoch': 0.0}
-  0%|          | 5/1000 [01:39<5:30:24, 19.92s/it]  1%|          | 6/1000 [01:59<5:30:15, 19.94s/it]                                                  {'loss': 2.0275, 'learning_rate': 6e-05, 'epoch': 0.0}
-  1%|          | 6/1000 [01:59<5:30:15, 19.94s/it]  1%|          | 7/1000 [02:19<5:29:50, 19.93s/it]                                                  {'loss': 1.9474, 'learning_rate': 7e-05, 'epoch': 0.0}
-  1%|          | 7/1000 [02:19<5:29:50, 19.93s/it]  1%|          | 8/1000 [02:39<5:30:52, 20.01s/it]                                                  {'loss': 1.9511, 'learning_rate': 8e-05, 'epoch': 0.0}
-  1%|          | 8/1000 [02:39<5:30:52, 20.01s/it]  1%|          | 9/1000 [02:59<5:30:20, 20.00s/it]                                                  {'loss': 1.8393, 'learning_rate': 9e-05, 'epoch': 0.0}
-  1%|          | 9/1000 [02:59<5:30:20, 20.00s/it]  1%|          | 10/1000 [03:19<5:30:12, 20.01s/it]                                                   {'loss': 1.8299, 'learning_rate': 0.0001, 'epoch': 0.0}
-  1%|          | 10/1000 [03:19<5:30:12, 20.01s/it]  1%|          | 11/1000 [03:39<5:29:10, 19.97s/it]                                                   {'loss': 1.867, 'learning_rate': 0.00011000000000000002, 'epoch': 0.0}
-  1%|          | 11/1000 [03:39<5:29:10, 19.97s/it]  1%|          | 12/1000 [03:59<5:28:20, 19.94s/it]                                                   {'loss': 1.8837, 'learning_rate': 0.00012, 'epoch': 0.0}
-  1%|          | 12/1000 [03:59<5:28:20, 19.94s/it]  1%|▏         | 13/1000 [04:19<5:27:42, 19.92s/it]                                                   {'loss': 1.8838, 'learning_rate': 0.00013000000000000002, 'epoch': 0.0}
-  1%|▏         | 13/1000 [04:19<5:27:42, 19.92s/it]  1%|▏         | 14/1000 [04:39<5:27:22, 19.92s/it]                                                   {'loss': 1.8055, 'learning_rate': 0.00014, 'epoch': 0.0}
-  1%|▏         | 14/1000 [04:39<5:27:22, 19.92s/it]  2%|▏         | 15/1000 [04:59<5:27:22, 19.94s/it]                                                   {'loss': 1.8641, 'learning_rate': 0.00015000000000000001, 'epoch': 0.01}
-  2%|▏         | 15/1000 [04:59<5:27:22, 19.94s/it]  2%|▏         | 16/1000 [05:19<5:27:10, 19.95s/it]                                                   {'loss': 1.7658, 'learning_rate': 0.00016, 'epoch': 0.01}
-  2%|▏         | 16/1000 [05:19<5:27:10, 19.95s/it]  2%|▏         | 17/1000 [05:39<5:26:21, 19.92s/it]                                                   {'loss': 1.8177, 'learning_rate': 0.00017, 'epoch': 0.01}
-  2%|▏         | 17/1000 [05:39<5:26:21, 19.92s/it]  2%|▏         | 18/1000 [05:59<5:26:17, 19.94s/it]                                                   {'loss': 1.7849, 'learning_rate': 0.00018, 'epoch': 0.01}
-  2%|▏         | 18/1000 [05:59<5:26:17, 19.94s/it]  2%|▏         | 19/1000 [06:19<5:25:43, 19.92s/it]                                                   {'loss': 1.801, 'learning_rate': 0.00019, 'epoch': 0.01}
-  2%|▏         | 19/1000 [06:19<5:25:43, 19.92s/it]  2%|▏         | 20/1000 [06:38<5:25:18, 19.92s/it]                                                   {'loss': 1.7995, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▏         | 20/1000 [06:38<5:25:18, 19.92s/it]  2%|▏         | 21/1000 [06:58<5:24:52, 19.91s/it]                                                   {'loss': 1.8298, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▏         | 21/1000 [06:58<5:24:52, 19.91s/it]  2%|▏         | 22/1000 [07:18<5:24:33, 19.91s/it]                                                   {'loss': 1.8016, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▏         | 22/1000 [07:18<5:24:33, 19.91s/it]  2%|▏         | 23/1000 [07:38<5:24:37, 19.94s/it]                                                   {'loss': 1.8255, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▏         | 23/1000 [07:38<5:24:37, 19.94s/it]  2%|▏         | 24/1000 [07:58<5:24:35, 19.95s/it]                                                   {'loss': 1.8207, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▏         | 24/1000 [07:58<5:24:35, 19.95s/it]  2%|▎         | 25/1000 [08:18<5:24:00, 19.94s/it]                                                   {'loss': 1.8882, 'learning_rate': 0.0002, 'epoch': 0.01}
-  2%|▎         | 25/1000 [08:18<5:24:00, 19.94s/it]  3%|▎         | 26/1000 [08:38<5:23:18, 19.92s/it]                                                   {'loss': 1.7561, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 26/1000 [08:38<5:23:18, 19.92s/it]  3%|▎         | 27/1000 [08:58<5:23:41, 19.96s/it]                                                   {'loss': 1.8168, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 27/1000 [08:58<5:23:41, 19.96s/it]  3%|▎         | 28/1000 [09:18<5:22:56, 19.94s/it]                                                   {'loss': 1.8711, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 28/1000 [09:18<5:22:56, 19.94s/it]  3%|▎         | 29/1000 [09:38<5:23:21, 19.98s/it]                                                   {'loss': 1.8236, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 29/1000 [09:38<5:23:21, 19.98s/it]  3%|▎         | 30/1000 [09:58<5:22:43, 19.96s/it]                                                   {'loss': 1.7942, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 30/1000 [09:58<5:22:43, 19.96s/it]  3%|▎         | 31/1000 [10:18<5:22:13, 19.95s/it]                                                   {'loss': 1.8395, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 31/1000 [10:18<5:22:13, 19.95s/it]  3%|▎         | 32/1000 [10:38<5:21:28, 19.93s/it]                                                   {'loss': 1.7662, 'learning_rate': 0.0002, 'epoch': 0.01}
-  3%|▎         | 32/1000 [10:38<5:21:28, 19.93s/it]
