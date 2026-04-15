@@ -499,16 +499,6 @@ python merge_lora_weights_hici.py \
     --num_heads 8 \
     --bottleneck_dim 512
 
-# Qwen3
-python merge_lora_weights_hici_qwen3.py \
-    --base_model ./models/Qwen3-8B \
-    --peft_model ./checkpoints/Qwen3-8b-HiCI-48k/checkpoint-1000 \
-    --save_path ./models/merged/Qwen3-8b-HiCI-48k \
-    --context_size 49152 \
-    --num_local_slots 8 \
-    --global_slots 4 \
-    --num_heads 8 \
-    --bottleneck_dim 512
 ```
 
 ---

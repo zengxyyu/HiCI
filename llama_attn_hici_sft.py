@@ -71,13 +71,13 @@ class LocalConstructor(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 16)
+        num_local_slots: Number of learnable query slots (default: 8)
     """
 
     def __init__(
         self,
         hidden_size,
-        num_local_slots=16,
+        num_local_slots=8,
         num_heads: Optional[int] = None,
         init_from_embeddings=None,
     ):
@@ -152,7 +152,7 @@ class LocalConstructorMulti(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for LLaMA-2-7B)
-        num_local_slots: Number of learnable query slots M (default: 16)
+        num_local_slots: Number of learnable query slots M (default: 8)
         num_heads: Number of attention heads (default: 32)
         init_from_embeddings: Optional pretrained embeddings for slot initialization
         init_from_llama_attn: Optional LlamaAttention layer for warm-starting Q/K/V projections
@@ -166,7 +166,7 @@ class LocalConstructorMulti(nn.Module):
     def __init__(
         self,
         hidden_size,
-        num_local_slots=16,
+        num_local_slots=8,
         num_heads=32,
         init_from_embeddings=None,
         init_from_llama_attn=None,
@@ -354,12 +354,12 @@ class LocalConstructorFlash(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for LLaMA-2-7B)
-        num_local_slots: Number of learnable query slots M (default: 16)
+        num_local_slots: Number of learnable query slots M (default: 8)
         num_heads: Number of attention heads (default: 32)
     """
 
     def __init__(
-        self, hidden_size, num_local_slots=16, num_heads=32, init_from_embeddings=None
+        self, hidden_size, num_local_slots=8, num_heads=32, init_from_embeddings=None
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -500,12 +500,12 @@ class LocalConstructorFlashPlus(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for LLaMA-2-7B)
-        num_local_slots: Number of learnable query slots M (default: 16)
+        num_local_slots: Number of learnable query slots M (default: 8)
         num_heads: Number of attention heads (default: 32)
     """
 
     def __init__(
-        self, hidden_size, num_local_slots=16, num_heads=32, init_from_embeddings=None
+        self, hidden_size, num_local_slots=8, num_heads=32, init_from_embeddings=None
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -669,9 +669,9 @@ class GlobalIntegrator(nn.Module):
         compress_dim: int = 512,
         num_heads: int = 8,
         dropout: float = 0.0,
-        local_slots: int = 16,  # 兼容参数
-        use_bottleneck: bool = False,  # 兼容参数
-        bottleneck_dim: int = 4096,  # 兼容参数
+        local_slots: int = 16,  # unused; kept for backward compatibility
+        use_bottleneck: bool = False,  # unused; kept for backward compatibility
+        bottleneck_dim: int = 4096,  # unused; kept for backward compatibility
         init_from_embeddings: Optional[torch.Tensor] = None,
         use_high_norm_init: bool = True,
         output_scale_init: float = 0.1,
@@ -870,331 +870,6 @@ class GlobalIntegrator(nn.Module):
         return G
 
 
-# ============================================================================
-# GlobalIntegratorShared — shared-compressor variant (parameter-efficient)
-# ============================================================================
-# class GlobalIntegratorShared(nn.Module):
-#     """
-#     GlobalIntegratorShared - shared compression layer variant
-
-#     核心优化：
-#     1. ✅ 参数减少92%：从10.5M降到0.85M（统计量压缩部分）
-#     2. ✅ 共享压缩backbone：5个统计量共享同一个4096→128的压缩层
-#     3. ✅ 统计量融合：通过5×128→512的融合层整合所有统计信息
-#     4. ✅ 保持原有设计：两阶段压缩 + Lightweight Attention
-#     5. ✅ 更强的归纳偏置：共享参数迫使模型学习通用的压缩函数
-
-#     理论依据：
-#     - 参数共享（Parameter Sharing）：类似 CNN 的 weight sharing
-#     - 归纳偏置（Inductive Bias）：强制5种统计量使用相同的特征提取器
-#     - 信息瓶颈（Information Bottleneck）：通过小的中间维度(128)控制容量
-
-#     参数量对比（hidden_size=4096, compress_dim=512）：
-#         原版统计量压缩: 5 × (4096 × 512) = 10.5M
-
-#         优化版：
-#         - 共享压缩层:   4096 × 128 = 0.524M
-#         - 统计量融合:   5×128 × 512 = 0.328M
-#         - 总计:         0.852M（节省92%！）
-
-#         其他层保持不变:
-#         - Q/K/V投影:    0.8M
-#         - O投影:        0.26M
-#         - 扩展层:       2.1M
-
-#         总参数量: 0.852M + 0.8M + 0.26M + 2.1M = 4.0M/layer（原版13.7M）
-#         节省率: 71%
-
-#     输入输出：
-#         Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
-#         Output: global_context  [bsz, global_slots, hidden_size]
-#     """
-
-#     _init_msg_printed = False
-
-#     def __init__(
-#         self,
-#         hidden_size: int = 4096,
-#         global_slots: int = 4,
-#         compress_dim: int = 512,
-#         shared_compress_dim: int = 128,  # 共享压缩层的维度
-#         num_heads: int = 8,
-#         dropout: float = 0.0,
-#         local_slots: int = 16,  # 兼容参数
-#         use_bottleneck: bool = False,  # 兼容参数
-#         bottleneck_dim: int = 4096,  # 兼容参数
-#         init_from_embeddings: Optional[torch.Tensor] = None,
-#         use_high_norm_init: bool = True,
-#         output_scale_init: float = 0.1,
-#     ):
-#         """
-#         Args:
-#             hidden_size: 隐藏维度（通常 4096）
-#             global_slots: number of global context slots (typically 4-16)
-#             compress_dim: 最终压缩维度（通常 512）
-#             shared_compress_dim: 共享压缩层的中间维度（通常 128）
-#             num_heads: 注意力头数
-#             dropout: 注意力 dropout 概率
-#             init_from_embeddings: 用于初始化的预训练 embedding
-#             use_high_norm_init: 是否使用高范数词选择初始化
-#             output_scale_init: 输出缩放的初始值
-#         """
-#         super().__init__()
-
-#         # ============ 参数验证 ============
-#         assert compress_dim % num_heads == 0, (
-#             f"compress_dim ({compress_dim}) must be divisible by num_heads ({num_heads})"
-#         )
-#         assert output_scale_init > 0, "output_scale_init must be positive"
-
-#         # ============ 保存配置 ============
-#         self.hidden_size = hidden_size
-#         self.num_global = global_slots  # 兼容命名
-#         self.global_slots = global_slots
-#         self.shared_compress_dim = shared_compress_dim
-#         self.num_heads = num_heads
-#         self.dropout_p = dropout
-#         self.use_high_norm_init = use_high_norm_init
-#         self._output_scale_init = output_scale_init
-
-#         # ============ 阶段1：共享压缩层 ============
-#         self.stat_names = ["mean", "max", "min", "std", "norm_mean"]
-
-#         # 关键优化：所有统计量共享同一个压缩层
-#         self.shared_compressor = nn.Sequential(
-#             nn.Linear(hidden_size, shared_compress_dim, bias=False),
-#             nn.LayerNorm(shared_compress_dim),
-#         )
-#         # 参数: 4096 × shared_compress_dim
-
-#         # ✅ 条件判断：只有需要扩展维度时才创建扩展层
-#         # 如果 shared_compress_dim = compress_dim，则不需要扩展层
-#         if shared_compress_dim < compress_dim:
-#             self.stat_expand = nn.Sequential(
-#                 nn.Linear(shared_compress_dim, compress_dim, bias=False),
-#                 nn.LayerNorm(compress_dim),
-#             )
-#             # 参数: shared_compress_dim × compress_dim
-#             self.compress_dim = compress_dim
-#         else:
-#             # shared_compress_dim >= compress_dim: 不需要扩展
-#             # 使用 Identity，0参数
-#             self.stat_expand = nn.Identity()
-#             if shared_compress_dim > compress_dim:
-#                 print(
-#                     f"⚠️  Warning: shared_compress_dim ({shared_compress_dim}) > compress_dim ({compress_dim})"
-#                 )
-#                 print(f"   Setting compress_dim = shared_compress_dim for consistency")
-#             self.compress_dim = shared_compress_dim
-
-#         self.head_dim = self.compress_dim // num_heads
-#         # 总计: 524K + 66K = 590K（原版10.5M的5.6%！）
-
-#         # ============ 阶段2：Lightweight Multi-Head Attention ============
-#         self.global_queries = nn.Parameter(torch.zeros(global_slots, self.compress_dim))
-
-#         self.q_proj = nn.Linear(self.compress_dim, self.compress_dim, bias=False)
-#         self.k_proj = nn.Linear(self.compress_dim, self.compress_dim, bias=False)
-#         self.v_proj = nn.Linear(self.compress_dim, self.compress_dim, bias=False)
-#         self.o_proj = nn.Linear(self.compress_dim, self.compress_dim, bias=False)
-
-#         self.attn_dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
-
-#         # ============ 阶段3：维度扩展 ============
-#         self.expand = nn.Linear(self.compress_dim, hidden_size, bias=False)
-#         std_init = 0.02 / math.sqrt(self.compress_dim)
-#         nn.init.normal_(self.expand.weight, mean=0.0, std=std_init)
-
-#         # 输出缩放参数
-#         init_param = math.log(math.exp(output_scale_init) - 1)
-#         self.expand_scale_param = nn.Parameter(torch.tensor(init_param))
-
-#         # ============ 初始化 ============
-#         self._init_weights(init_from_embeddings)
-#         self._print_init_info()
-
-#     @property
-#     def expand_scale(self) -> torch.Tensor:
-#         """通过 softplus 确保 scale 始终为正"""
-#         return F.softplus(self.expand_scale_param)
-
-#     def _init_weights(self, embed_weight: Optional[torch.Tensor] = None):
-#         """权重初始化"""
-#         if embed_weight is not None:
-#             with torch.no_grad():
-#                 if self.use_high_norm_init:
-#                     embed_norms = torch.norm(embed_weight, dim=-1)
-#                     _, top_indices = torch.topk(embed_norms, k=self.global_slots)
-#                     init_embeddings = embed_weight[top_indices]
-#                 else:
-#                     indices = torch.randperm(embed_weight.size(0))[: self.global_slots]
-#                     init_embeddings = embed_weight[indices]
-
-#                 # 确保 device 和 dtype 匹配
-#                 target_device = self.shared_compressor[0].weight.device
-#                 target_dtype = self.shared_compressor[0].weight.dtype
-#                 init_embeddings = init_embeddings.to(
-#                     device=target_device, dtype=target_dtype
-#                 )
-
-#                 # ✅ 修正：通过共享压缩层 + 扩展层初始化
-#                 init_compressed = self.shared_compressor(
-#                     init_embeddings
-#                 )  # [global_slots, 128]
-#                 init_expanded = self.stat_expand(init_compressed)  # [global_slots, 512]
-#                 self.global_queries.copy_(init_expanded)
-#         else:
-#             nn.init.xavier_uniform_(self.global_queries)
-
-#         # 投影层初始化
-#         for proj in [self.q_proj, self.k_proj, self.v_proj, self.o_proj]:
-#             nn.init.xavier_uniform_(proj.weight)
-
-#     def _print_init_info(self):
-#         """打印初始化信息"""
-#         rank = dist.get_rank() if dist.is_initialized() else 0
-#         if rank == 0 and not GlobalIntegratorShared._init_msg_printed:
-#             total_params = sum(p.numel() for p in self.parameters())
-
-#             # 计算统计量压缩部分的参数
-#             stat_compress_params = sum(
-#                 p.numel() for p in self.shared_compressor.parameters()
-#             ) + sum(p.numel() for p in self.stat_expand.parameters())
-
-#             print(f"   ✅ GlobalIntegratorShared initialized (共享压缩层优化版)")
-
-#             # 根据是否有扩展层显示不同的设计描述
-#             if isinstance(self.stat_expand, nn.Identity):
-#                 design_desc = "Shared Compressor + Lightweight MHA (no expansion)"
-#             else:
-#                 design_desc = (
-#                     "Shared Compressor + Statistical Expansion + Lightweight MHA"
-#                 )
-
-#             print(f"       - Design: {design_desc}")
-#             print(f"       - Global slots: {self.global_slots}")
-#             print(f"       - Shared compress dim: {self.shared_compress_dim}")
-#             print(f"       - Final compress dim: {self.compress_dim}")
-#             print(f"       - Num heads: {self.num_heads}")
-#             print(f"       - Output scale (init): {self._output_scale_init}")
-#             print(
-#                 f"       - Stat compression params: {stat_compress_params:,} ({stat_compress_params / 1e6:.2f}M)"
-#             )
-#             print(
-#                 f"       - Total params/layer: {total_params:,} ({total_params / 1e6:.1f}M)"
-#             )
-#             print(
-#                 f"       - 🎯 Saved {(1 - total_params / 13.7e6) * 100:.0f}% compared to original"
-#             )
-#             GlobalIntegratorShared._init_msg_printed = True
-
-#     def forward(self, local_memories: torch.Tensor) -> torch.Tensor:
-#         """
-#         前向传播
-
-#         Args:
-#             local_memories: [bsz, num_chunks, local_slots, hidden_size]
-
-#         Returns:
-#             G: [bsz, global_slots, hidden_size]
-
-#         数据流：
-#             local_memories [bsz, C, L, H]
-#                 ↓ reshape
-#             all_local [bsz, C*L, H]
-#                 ↓ 5种统计量
-#             stats [bsz, H] × 5
-#                 ↓ 共享压缩（每个统计量独立通过）
-#             compressed_stats_list: 5 × [bsz, 128]
-#                 ↓ 扩展（每个统计量独立通过）
-#             expanded_stats_list: 5 × [bsz, 512]
-#                 ↓ stack保持分离
-#             compressed_stats [bsz, 5, 512]
-#                 ↓ Multi-Head Attention（对5个统计量进行选择）
-#             G_compressed [bsz, G, D]
-#                 ↓ expand + scale
-#             G [bsz, G, H]
-#         """
-#         bsz, num_chunks, local_slots, hidden_size = local_memories.shape
-
-#         # ========== 阶段1a：统计量提取 ==========
-#         all_local = local_memories.reshape(bsz, -1, hidden_size)
-
-#         # 计算5种统计量
-#         mean_pool = all_local.mean(dim=1)
-#         max_pool, _ = all_local.max(dim=1)
-#         min_pool, _ = all_local.min(dim=1)
-
-#         # std 计算使用 fp32 确保稳定性
-#         with torch.amp.autocast(device_type="cuda", enabled=False):
-#             all_local_fp32 = all_local.float()
-#             std_pool = all_local_fp32.std(dim=1, unbiased=False).clamp(min=1e-6)
-#         std_pool = std_pool.to(all_local.dtype)
-
-#         # L2 归一化的均值
-#         norm_mean = F.normalize(mean_pool, dim=-1, p=2, eps=1e-6)
-
-#         # ========== 阶段1b：共享压缩 + 扩展（保持5个统计量分离！） ==========
-#         # ✅ Batch优化：一次性处理5个统计量，性能提升5.75x
-#         # 关键：保持5个统计量分离，让Attention能学习如何选择性地使用它们
-#         stats_list = [mean_pool, max_pool, min_pool, std_pool, norm_mean]
-
-#         # Stack: [bsz, 5, hidden_size]
-#         stats_stacked = torch.stack(stats_list, dim=1)
-#         num_stats = 5
-
-#         # Batch压缩: view为[bsz*5, hidden_size] → compress → view回[bsz, 5, 128]
-#         compressed_stats = self.shared_compressor(
-#             stats_stacked.view(bsz * num_stats, hidden_size)
-#         ).view(bsz, num_stats, -1)
-
-#         # Batch扩展: view为[bsz*5, 128] → expand → view回[bsz, 5, 512]
-#         compressed_stats = self.stat_expand(
-#             compressed_stats.view(bsz * num_stats, -1)
-#         ).view(bsz, num_stats, self.compress_dim)
-#         # compressed_stats: [bsz, 5, 512]（和原版一样！）
-
-#         # ========== 阶段2：Lightweight Multi-Head Attention ==========
-#         # Q: [bsz, global_slots, compress_dim]
-#         Q = self.global_queries.unsqueeze(0).expand(bsz, -1, -1)
-#         Q = self.q_proj(Q)
-
-#         # ✅ 修正：K, V: [bsz, 5, compress_dim]（和原版一样！）
-#         K = self.k_proj(compressed_stats)
-#         V = self.v_proj(compressed_stats)
-
-#         # 分头: [bsz, num_heads, seq_len, head_dim]
-#         Q = Q.view(bsz, self.global_slots, self.num_heads, self.head_dim).transpose(
-#             1, 2
-#         )
-#         K = K.view(bsz, 5, self.num_heads, self.head_dim).transpose(1, 2)
-#         V = V.view(bsz, 5, self.num_heads, self.head_dim).transpose(1, 2)
-#         # ✅ Q: [bsz, num_heads, global_slots, head_dim]
-#         # ✅ K: [bsz, num_heads, 5, head_dim]（和原版一样！）
-#         # ✅ V: [bsz, num_heads, 5, head_dim]（和原版一样！）
-
-#         # Scaled Dot-Product Attention
-#         scale = self.head_dim**-0.5
-#         # ✅ attn_weights: [bsz, num_heads, global_slots, 5]（和原版一样！）
-#         attn_weights = torch.matmul(Q, K.transpose(-2, -1)) * scale
-#         attn_probs = F.softmax(attn_weights, dim=-1)
-#         attn_probs = self.attn_dropout(attn_probs)
-
-#         # ✅ attn_output: [bsz, num_heads, global_slots, head_dim]
-#         attn_output = torch.matmul(attn_probs, V)
-
-#         # 合并头
-#         attn_output = attn_output.transpose(1, 2).contiguous()
-#         attn_output = attn_output.view(bsz, self.global_slots, self.compress_dim)
-
-#         # Output projection
-#         G_compressed = self.o_proj(attn_output)
-
-#         # ========== 阶段3：维度扩展 ==========
-#         G = self.expand(G_compressed) * self.expand_scale
-
-
-#         return G
 class GlobalIntegratorShared(nn.Module):
     """
     Global Integration module — shared-compressor variant (parameter-efficient).
@@ -1222,12 +897,12 @@ class GlobalIntegratorShared(nn.Module):
         hidden_size: int = 4096,
         global_slots: int = 4,
         compress_dim: int = 512,
-        shared_compress_dim: int = 128,  # 共享压缩层的维度
+        shared_compress_dim: int = 128,  # intermediate dimension of the shared compressor
         num_heads: int = 8,
         dropout: float = 0.0,
-        local_slots: int = 16,  # 兼容参数
-        use_bottleneck: bool = False,  # 兼容参数
-        bottleneck_dim: int = 4096,  # 兼容参数
+        local_slots: int = 16,  # unused; kept for backward compatibility
+        use_bottleneck: bool = False,  # unused; kept for backward compatibility
+        bottleneck_dim: int = 4096,  # unused; kept for backward compatibility
         init_from_embeddings: Optional[torch.Tensor] = None,
         use_high_norm_init: bool = True,
         output_scale_init: float = 0.1,
@@ -1597,7 +1272,7 @@ def forward_flashattn_hierarchical(
 
     # ========== Step 2: Local Construction — extract M local slot representations per chunk ==========
     if (use_higher_global or use_local_slots) and hasattr(self, "local_constructor"):
-        # 批处理所有 chunks（并行）
+        # Batch all chunks together for parallel processing
         all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
 
         # [bsz, num_groups, group_size] -> [bsz * num_groups, group_size]
@@ -2889,8 +2564,8 @@ def replace_llama_attn(
 
 def register_hici_to_model(
     model,
-    num_local_slots=16,
-    global_slots=2,
+    num_local_slots=8,
+    global_slots=4,
     num_heads=32,
     use_bottleneck=True,
     bottleneck_dim=4096,
@@ -2909,8 +2584,8 @@ def register_hici_to_model(
 
     Args:
         model: LlamaForCausalLM or PeftModelForCausalLM
-        num_local_slots: Number of Local Representation Slots (for LocalConstructor, default: 16)
-        global_slots: Number of global context slots (for GlobalIntegrator, default: 16)
+        num_local_slots: Number of Local Representation Slots (for LocalConstructor, default: 8)
+        global_slots: Number of global context vectors (for GlobalIntegrator, default: 4)
         num_heads: Number of attention heads (default: 32)
         bottleneck_dim: Bottleneck dimension for efficiency (default: 2048)
         use_global_integrator: If True, also register GlobalIntegrator (default: False)
@@ -2924,13 +2599,13 @@ def register_hici_to_model(
 
         # 3. Register global memory (BEFORE optimizer!)
         # For simple global memory:
-        register_hici_to_model(model, num_local_slots=16)
+        register_hici_to_model(model, num_local_slots=8)
 
         # For hierarchical memory:
         register_hici_to_model(
             model,
-            num_local_slots=16,  # local slots
-            global_slots=16,       # higher-level global slots
+            num_local_slots=8,   # local slots
+            global_slots=4,        # higher-level global slots
             use_global_integrator=True
         )
 

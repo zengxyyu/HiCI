@@ -19,7 +19,7 @@
 #       --max_steps 1000 \
 #       --num_heads 32 \
 #       --num_local_slots 8 \
-#       --global_slots 16
+#       --global_slots 4
 
 import os
 import math
@@ -190,8 +190,8 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Number of local representation slots per segment (default: 8)."},
     )
     global_slots: int = field(
-        default=16,
-        metadata={"help": "Number of global context slots (default: 16)."},
+        default=4,
+        metadata={"help": "Number of global context vectors (default: 4)."},
     )
     use_local_constructor: bool = field(
         default=True,
@@ -335,7 +335,7 @@ def train():
     model_args, training_args = parser.parse_args_into_dataclasses()
 
     # ========================================================================
-    # Replace Qwen2 attention with HiCI
+    # Replace Qwen3 attention with HiCI
     # ========================================================================
     assert model_args.model_type == "qwen3", (
         f"This script only supports qwen3, got: {model_args.model_type}. "

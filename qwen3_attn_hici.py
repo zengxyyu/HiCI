@@ -44,46 +44,46 @@ import os
 import json
 
 # ============================================================================
-# 🔥 混合分组训练配置
+# Mixed-group training configuration
 # ============================================================================
 MIXED_GROUP_TRAINING = False
-GROUP_SIZE_RATIOS = [1 / 2, 1 / 4, 1 / 8]  # 对应 2组, 4组, 8组
+GROUP_SIZE_RATIOS = [1 / 2, 1 / 4, 1 / 8]  # corresponding to 2, 4, 8 groups
 
-group_size_ratio = 1 / 4  # 默认值（MIXED_GROUP_TRAINING=False 时使用）
+group_size_ratio = 1 / 4  # default (used when MIXED_GROUP_TRAINING=False)
 
 # ============================================================================
-# 🎯 固定 segment_size 模式（用于评估，匹配训练时的分组大小）
+# Fixed segment-size mode (for evaluation; matches training segment size)
 # ============================================================================
 USE_FIXED_SEGMENT_SIZE = False
-FIXED_SEGMENT_SIZE = 1024  # 固定每组大小（tokens）
+FIXED_SEGMENT_SIZE = 1024  # tokens per segment
 
 # ============================================================================
-# 🔒 因果上下文模式 (Causal Context Mode)
+# Causal context mode
 # ============================================================================
-# "none"        - 原始行为：所有 segment 共享同一个 G（非因果，R1 质疑的问题）
-# "causal_gi"   - 方案一：segment_i 使用 G_i=Agg(L_1..L_i) 和 L_i
-#                 G 因果，L_i 有 bounded intra-segment leakage（bottleneck 压缩）
-# "causal_shift"- 方案二：segment_i 使用 G_{i-1}=Agg(L_1..L_{i-1}) 和 L_{i-1}
-#                 完全因果，零泄露；segment_1 没有 G 和 L
+# "none"        - default: all segments share one G (non-causal)
+# "causal_gi"   - option A: segment_i uses G_i=Agg(L_1..L_i) and L_i
+#                 G is causal; L_i has bounded intra-segment leakage (bottleneck compression)
+# "causal_shift"- option B: segment_i uses G_{i-1}=Agg(L_1..L_{i-1}) and L_{i-1}
+#                 strictly causal, zero leakage; segment_1 has no G or L
 CAUSAL_CONTEXT_MODE = "causal_gi"
 
 # ============================================================================
-# 🔥 Full Attention + HiCI 模式
+# Full attention + HiCI mode
 # ============================================================================
 USE_FULL_ATTN_WITH_HICI = True
 
-# 全局变量：确保同一个 forward pass 中所有层使用相同的分组
+# Global state: all layers share the same grouping within one forward pass
 _mixed_group_current_ratio = None
 _mixed_group_call_count = 0
 rank = dist.get_rank() if dist.is_initialized() else 0
 
 # ============================================================================
-# 🧪 Cache 测试配置
+# Cache fill mode for testing
 # ============================================================================
 CACHE_FILL_MODE = "zeros"
 
 # ============================================================================
-# 🎨 Attention可视化配置 (推理时使用)
+# Attention visualization configuration (inference only)
 # ============================================================================
 COLLECT_ATTENTION_FOR_VIZ = False
 
@@ -100,7 +100,7 @@ attention_visualizer = {
 
 
 def reset_attention_visualizer():
-    """重置收集器，每次推理前调用"""
+    """Reset the attention visualizer; call before each inference pass."""
     global attention_visualizer
     attention_visualizer = {
         "enabled": COLLECT_ATTENTION_FOR_VIZ,
@@ -115,7 +115,7 @@ def reset_attention_visualizer():
 
 
 def save_attention_stats(save_path="attention_stats.json"):
-    """保存收集的attention统计到文件"""
+    """Save collected attention statistics to a JSON file."""
     stats = {
         "num_global_slots": attention_visualizer["num_global_slots"],
         "num_local_slots": attention_visualizer["num_local_slots"],
@@ -131,19 +131,19 @@ def save_attention_stats(save_path="attention_stats.json"):
 
 
 # ============================================================================
-# LocalConstructorMulti - 局部记忆提取（多头注意力，标准 PyTorch 实现）
+# LocalConstructorMulti — Local Construction module (multi-head, standard PyTorch)
 # ============================================================================
-# 架构无关：只依赖 hidden_size 和 num_heads，与模型类型无关
-# 与 llama_attn_hici.py 中的 LocalConstructorMulti 保持一致
+# Architecture-agnostic: depends only on hidden_size and num_heads.
+# Consistent with LocalConstructorMulti in llama_attn_hici.py.
 class LocalConstructorMulti(nn.Module):
     """
     Learnable query slots for capturing document-level context.
 
-    多头注意力版本（不使用 Flash Attention），使用标准 PyTorch 实现，支持：
-    1. 多头注意力 - 更好的表达能力
-    2. Attention mask - 正确处理 padding tokens
-    3. Bottleneck 压缩 - 可选的信息瓶颈机制
-    4. 权重初始化 - 从预训练权重 warm start
+    Multi-head cross-attention implementation (no Flash Attention). Supports:
+    1. Multi-head attention — improved expressiveness
+    2. Attention mask — correct handling of padding tokens
+    3. Bottleneck compression — optional information bottleneck
+    4. Weight initialization — warm-start from pretrained weights
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096)
@@ -155,7 +155,7 @@ class LocalConstructorMulti(nn.Module):
         bottleneck_dim: Bottleneck dimension (default: 512)
     """
 
-    # 类变量：控制只打印一次初始化信息
+    # Class-level flag: print initialization info only once
     _init_msg_printed = False
 
     def __init__(
@@ -283,7 +283,7 @@ class LocalConstructorMulti(nn.Module):
 
 
 # ============================================================================
-# LocalConstructorFlash - 复用模型 K/V 投影的改进版
+# LocalConstructorFlash — Local Construction module (K/V-reuse variant)
 # ============================================================================
 class LocalConstructorFlash(nn.Module):
     """
@@ -316,7 +316,7 @@ class LocalConstructorFlash(nn.Module):
             local_rank = dist.get_rank() if dist.is_initialized() else 0
             if local_rank == 0 and layer_idx == 0:
                 print(f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)")
-                print(f" LocalConstructorFlash 记忆注意力头数num_heads: {num_heads})")
+                print(f"    [LocalConstructorFlash] Initialized memory_slots from embeddings, num_heads={num_heads}")
         else:
             std = 1.0 / math.sqrt(hidden_size)
             self.memory_slots = nn.Parameter(
@@ -325,7 +325,7 @@ class LocalConstructorFlash(nn.Module):
             local_rank = dist.get_rank() if dist.is_initialized() else 0
             if local_rank == 0 and layer_idx == 0:
                 print(f"    [LocalConstructorFlash] Initialized memory_slots with std={std}")
-                print(f" LocalConstructorFlash 记忆注意力头数num_heads: {num_heads})")
+                print(f"    [LocalConstructorFlash] Initialized memory_slots randomly, num_heads={num_heads}")
 
         # Only Q projection needed - K/V reused from model's attention
         self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
@@ -404,18 +404,18 @@ class LocalConstructorFlash(nn.Module):
 
 
 # ============================================================================
-# GlobalIntegrator - 高层记忆聚合器（独立压缩器版）
+# GlobalIntegrator — Global Integration module (independent compressors)
 # ============================================================================
 # Ported from llama_attn_hici.py - used when use_shared_compressor=False
 # Architecture-agnostic: pure nn.Module, no model-specific dependencies
 class GlobalIntegrator(nn.Module):
     """
-    混合全局记忆 - 简化版（无 EMA）
+    Global Integration module — independent-compressor variant.
 
-    每个统计量有独立的压缩器（5 × Linear(hidden_size, compress_dim)）。
-    参数量较大（~13.7M/layer），但提供更强的表达能力。
+    Five independent Linear compressors (one per statistic).
+    Higher parameter count (~13.7M/layer) but more expressive.
 
-    输入输出：
+    Input/output:
         Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
         Output: global_context  [bsz, global_slots, hidden_size]
     """
@@ -517,7 +517,7 @@ class GlobalIntegrator(nn.Module):
         local_rank = dist.get_rank() if dist.is_initialized() else 0
         if local_rank == 0 and not GlobalIntegrator._init_msg_printed:
             total_params = sum(p.numel() for p in self.parameters())
-            print(f"   ✅ GlobalIntegrator initialized (独立压缩器版)")
+            print(f"   GlobalIntegrator initialized (independent compressors)")
             print(f"       - Design: Statistical Aggregation + Lightweight MHA")
             print(f"       - Global slots: {self.global_slots}")
             print(f"       - Compress dim: {self.compress_dim}")
@@ -581,12 +581,12 @@ class GlobalIntegrator(nn.Module):
 
 
 # ============================================================================
-# GlobalIntegratorShared - 高层记忆聚合器（共享压缩层优化版）
+# GlobalIntegratorShared — Global Integration module (shared compressor, parameter-efficient)
 # ============================================================================
 # Architecture-agnostic: pure nn.Module, no model-specific dependencies
 class GlobalIntegratorShared(nn.Module):
     """
-    混合全局记忆 - 共享压缩层优化版
+    Global Integration module — shared-compressor variant.
     92% parameter reduction via shared compressor across 5 statistics.
     Architecture-agnostic: works with any hidden_size.
     """
@@ -700,7 +700,7 @@ class GlobalIntegratorShared(nn.Module):
                 p.numel() for p in self.shared_compressor.parameters()
             ) + sum(p.numel() for p in self.stat_expand.parameters())
 
-            print(f"   ✅ GlobalIntegratorShared initialized (共享压缩层优化版)")
+            print(f"   GlobalIntegratorShared initialized (shared compressor)")
             if isinstance(self.stat_expand, nn.Identity):
                 design_desc = "Shared Compressor + Lightweight MHA (no expansion)"
             else:
@@ -777,9 +777,9 @@ class GlobalIntegratorShared(nn.Module):
 
     def forward_causal(self, local_memories: torch.Tensor) -> torch.Tensor:
         """
-        因果版前向传播：为每个 segment 计算独立的 G_i（共享压缩层版本）
+        Causal forward pass: computes an independent G_i per segment (shared-compressor variant).
 
-        对于 segment i，G_i 仅由 L_1, ..., L_i 的累积统计量计算。
+        For segment i, G_i is computed from the cumulative statistics of L_1, ..., L_i.
 
         Args:
             local_memories: [bsz, num_chunks, local_slots, hidden_size]
@@ -789,7 +789,7 @@ class GlobalIntegratorShared(nn.Module):
         """
         bsz, num_chunks, local_slots, hidden_size = local_memories.shape
 
-        # ========== 阶段1：累积统计量提取 ==========
+        # ========== Stage 1: Cumulative statistics extraction ==========
         sum_per_chunk = local_memories.sum(dim=2)           # [bsz, N, H]
         max_per_chunk = local_memories.max(dim=2).values    # [bsz, N, H]
         min_per_chunk = local_memories.min(dim=2).values    # [bsz, N, H]
@@ -818,7 +818,7 @@ class GlobalIntegratorShared(nn.Module):
         # Stack: [bsz, N, 5, H]
         cum_stats = torch.stack([cum_mean, cum_max, cum_min, cum_std, cum_norm_mean], dim=2)
 
-        # ========== 阶段1b：共享压缩 + 扩展（batch over N）==========
+        # ========== Stage 1b: Shared compression + expansion (batched over N) ==========
         BN = bsz * num_chunks
         cum_stats_flat = cum_stats.reshape(BN * 5, hidden_size)
         compressed_stats = self.shared_compressor(cum_stats_flat).view(BN, 5, -1)
@@ -826,7 +826,7 @@ class GlobalIntegratorShared(nn.Module):
             compressed_stats.view(BN * 5, -1)
         ).view(BN, 5, self.compress_dim)
 
-        # ========== 阶段2：Lightweight MHA（batch over N）==========
+        # ========== Stage 2: Lightweight Multi-Head Attention (batched over N) ==========
         Q = self.global_queries.unsqueeze(0).expand(BN, -1, -1)
         Q = self.q_proj(Q)
         K = self.k_proj(compressed_stats)
@@ -846,14 +846,14 @@ class GlobalIntegratorShared(nn.Module):
         attn_output = attn_output.view(BN, self.global_slots, self.compress_dim)
         G_compressed = self.o_proj(attn_output)
 
-        # ========== 阶段3：维度扩展 ==========
+        # ========== Stage 3: Dimension expansion ==========
         G = self.expand(G_compressed) * self.expand_scale  # [BN, global_slots, H]
         G = G.view(bsz, num_chunks, self.global_slots, hidden_size)
         return G
 
 
 # ============================================================================
-# forward_flashattn_hierarchical - 主训练 forward 函数 (Qwen3 版, transformers 4.51+)
+# forward_flashattn_hierarchical — HiCI training forward (Qwen3, transformers >= 4.51)
 # ============================================================================
 def forward_flashattn_hierarchical(
     self,
@@ -915,9 +915,9 @@ def forward_flashattn_hierarchical(
             else:
                 print("  Baseline: Q=K/V=[chunk]")
 
-            # 因果模式提示
+            # Causal context mode info
             if CAUSAL_CONTEXT_MODE != "none":
-                print(f"  🔒 CAUSAL_CONTEXT_MODE: {CAUSAL_CONTEXT_MODE}")
+                print(f"  CAUSAL_CONTEXT_MODE: {CAUSAL_CONTEXT_MODE}")
                 if CAUSAL_CONTEXT_MODE == "causal_gi":
                     print("     segment_i uses G_i=Agg(L_1..L_i) + L_i")
                 elif CAUSAL_CONTEXT_MODE == "causal_shift":
@@ -996,8 +996,7 @@ def forward_flashattn_hierarchical(
         num_local_slots = 0
         local_memories_stacked = None
 
-    # ========== Step 3: Aggregate to higher-level global context ==========
-    # 根据 CAUSAL_CONTEXT_MODE 选择因果模式
+    # ========== Step 3: Aggregate local slots into global context vectors ==========
     _causal_mode = CAUSAL_CONTEXT_MODE  # "none", "causal_gi", "causal_shift"
     _is_causal = _causal_mode in ("causal_gi", "causal_shift")
 
@@ -1007,14 +1006,14 @@ def forward_flashattn_hierarchical(
         and local_memories_stacked is not None
     ):
         if _is_causal and hasattr(self.global_integrator, "forward_causal"):
-            # 因果模式：每个 segment 得到独立的 G_i
+            # Causal mode: each segment gets its own G_i
             higher_global_per_group = self.global_integrator.forward_causal(
                 local_memories_stacked
             )  # [bsz, num_groups, global_slots, hidden_size]
             num_global_slots = higher_global_per_group.shape[2]
 
             if _causal_mode == "causal_shift":
-                # 方案二：segment_i 使用 G_{i-1}，segment_0 用零
+                # option B (causal_shift): segment_i uses G_{i-1}; segment_0 gets zeros
                 zeros_g = torch.zeros(
                     bsz, 1, num_global_slots, hidden_size,
                     device=higher_global_per_group.device,
@@ -1024,9 +1023,9 @@ def forward_flashattn_hierarchical(
                     [zeros_g, higher_global_per_group[:, :-1, :, :]], dim=1
                 )
 
-            higher_global = None  # 使用 per-group 模式
+            higher_global = None  # use per-group mode
         else:
-            # 原始非因果模式：所有 segment 共享同一个 G
+            # Non-causal mode: all segments share a single G
             higher_global = self.global_integrator(local_memories_stacked)
             num_global_slots = higher_global.shape[1]
             higher_global_per_group = None
@@ -1035,7 +1034,7 @@ def forward_flashattn_hierarchical(
         higher_global_per_group = None
         num_global_slots = 0
 
-    # causal_shift 模式下同时 shift L_i → segment_i 用 L_{i-1}
+    # causal_shift: also shift L_i so segment_i uses L_{i-1}
     if (
         _causal_mode == "causal_shift"
         and use_local_constructor
@@ -1069,7 +1068,7 @@ def forward_flashattn_hierarchical(
     higher_global_k_per_group = higher_global_v_per_group = None
 
     if use_higher_global and higher_global is not None:
-        # 非因果模式：一个 G 共享给所有 chunks
+        # Non-causal mode: one G shared across all chunks
         higher_global_k = (
             self.k_proj(higher_global)
             .view(bsz, num_global_slots, num_kv_heads, head_dim)
@@ -1081,7 +1080,7 @@ def forward_flashattn_hierarchical(
             .transpose(1, 2)
         )
     elif use_higher_global and higher_global_per_group is not None:
-        # 因果模式：每个 chunk 有独立的 G_i
+        # Causal mode: each chunk has its own G_i
         # higher_global_per_group: [bsz, num_groups, global_slots, hidden_size]
         hg_flat = higher_global_per_group.view(
             bsz * num_groups, num_global_slots, hidden_size
@@ -1144,15 +1143,15 @@ def forward_flashattn_hierarchical(
         kv_components_v = []
 
         if use_higher_global and higher_global_k is not None:
-            # 非因果模式：所有 chunks 共享同一个 G
+            # Non-causal mode: all chunks share one G
             higher_global_k_exp = higher_global_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
             higher_global_v_exp = higher_global_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
             kv_components_k.append(higher_global_k_exp)
             kv_components_v.append(higher_global_v_exp)
         elif use_higher_global and higher_global_k_per_group is not None:
-            # 因果模式：每个 chunk 有独立的 G_i
+            # Causal mode: each chunk has its own G_i
             # higher_global_k_per_group: [bsz, num_groups, nh, global_slots, hd]
-            # 转换为: [bsz, nh, num_groups, global_slots, hd]
+            # Transpose to: [bsz, nh, num_groups, global_slots, hd]
             kv_components_k.append(higher_global_k_per_group.permute(0, 2, 1, 3, 4))
             kv_components_v.append(higher_global_v_per_group.permute(0, 2, 1, 3, 4))
 
@@ -1201,7 +1200,7 @@ def forward_flashattn_hierarchical(
         offset += num_local_slots
     all_masks_kv_stacked[:, :, offset:offset + group_size] = chunk_masks_reshaped
 
-    # causal_shift: segment_0 的 G 和 L 是零填充，mask 掉避免浪费注意力概率质量
+    # causal_shift: segment_0 memory is zero-padded; mask it to avoid wasting attention mass
     if _causal_mode == "causal_shift":
         mem_offset = 0
         if use_higher_global:
@@ -1303,7 +1302,7 @@ def forward_flashattn_hierarchical(
 
 
 # ============================================================================
-# forward_flashattn_hierarchical_inference - 推理版本 (支持任意长度 padding)
+# forward_flashattn_hierarchical_inference — HiCI inference forward (padding support)
 # ============================================================================
 def forward_flashattn_hierarchical_inference(
     self,
@@ -1689,7 +1688,7 @@ def _update_causal_mask_for_hici(
 
 
 # ============================================================================
-# replace_qwen3_attn - 替换 Qwen3 的 attention forward 函数
+# replace_qwen3_attn — replace Qwen3Attention forward with HiCI implementation
 # ============================================================================
 def replace_qwen3_attn(
     use_flash_attn=True,
@@ -1749,12 +1748,12 @@ def replace_qwen3_attn(
 
 
 # ============================================================================
-# register_hici_to_qwen3_model - 注册 HiCI 模块到 Qwen3 模型
+# register_hici_to_qwen3_model — register HiCI modules to each Qwen3Attention layer
 # ============================================================================
 def register_hici_to_qwen3_model(
     model,
-    num_local_slots=16,
-    global_slots=2,
+    num_local_slots=8,
+    global_slots=4,
     num_heads=32,
     use_bottleneck=True,
     bottleneck_dim=4096,
@@ -1875,7 +1874,7 @@ def register_hici_to_qwen3_model(
                     init_from_attn=attn if use_attn_init else None,
                 ).to(model_dtype)
             else:
-                # Default: use LocalConstructorMulti (标准多头注意力，与 llama_attn_hici.py 一致)
+                # Default: use LocalConstructorMulti (consistent with llama_attn_hici.py)
                 attn.local_constructor = LocalConstructorMulti(
                     hidden_size=hidden_size,
                     num_local_slots=num_local_slots,

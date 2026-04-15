@@ -143,13 +143,13 @@ class LocalConstructor(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 16)
+        num_local_slots: Number of learnable query slots (default: 8)
     """
 
     def __init__(
         self,
         hidden_size,
-        num_local_slots=16,
+        num_local_slots=8,
         num_heads: Optional[int] = None,
         init_from_embeddings=None,
     ):
@@ -243,7 +243,7 @@ class LocalConstructorMulti(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 16)
+        num_local_slots: Number of learnable query slots (default: 8)
         num_heads: Number of attention heads (default: 32)
         init_from_embeddings: Optional pretrained embeddings for memory_slots initialization
         init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization
@@ -463,7 +463,7 @@ class LocalConstructorFlashOri(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 16)
+        num_local_slots: Number of learnable query slots (default: 8)
         num_heads: Number of attention heads (default: 32, for Flash Attention)
         init_from_embeddings: Optional pretrained embeddings for memory_slots initialization
         init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization (方案C)
@@ -475,7 +475,7 @@ class LocalConstructorFlashOri(nn.Module):
     def __init__(
         self,
         hidden_size,
-        num_local_slots=16,
+        num_local_slots=8,
         num_heads=32,
         init_from_embeddings=None,
         init_from_llama_attn=None,  # 新增：从 LLaMA Attention 层初始化 Q/K/V 投影
@@ -686,7 +686,7 @@ class LocalConstructorFlash(nn.Module):
 
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 16)
+        num_local_slots: Number of learnable query slots (default: 8)
         num_heads: Number of attention heads (default: 32, for Flash Attention)
         init_from_embeddings: Optional pretrained embeddings for memory_slots initialization
         init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization (方案C)
@@ -698,7 +698,7 @@ class LocalConstructorFlash(nn.Module):
     def __init__(
         self,
         hidden_size,
-        num_local_slots=16,
+        num_local_slots=8,
         num_heads=32,
         init_from_embeddings=None,
         init_from_llama_attn=None,  # 新增：从 LLaMA Attention 层初始化 Q/K/V 投影
@@ -7564,8 +7564,8 @@ def replace_llama_attn(
 # 控制参数的地方
 def register_hici_to_model(
     model,
-    num_local_slots=16,
-    global_slots=2,
+    num_local_slots=8,
+    global_slots=4,
     num_heads=32,
     use_bottleneck=True,
     bottleneck_dim=4096,  # zxy
@@ -7585,8 +7585,8 @@ def register_hici_to_model(
 
     Args:
         model: LlamaForCausalLM or PeftModelForCausalLM
-        num_local_slots: Number of Local Representation Slots (for LocalConstructor, default: 16)
-        global_slots: Number of global context slots (for GlobalIntegrator, default: 16)
+        num_local_slots: Number of Local Representation Slots (for LocalConstructor, default: 8)
+        global_slots: Number of global context vectors (for GlobalIntegrator, default: 4)
         num_heads: Number of attention heads (default: 32)
         bottleneck_dim: Bottleneck dimension for efficiency (default: 2048)
         use_global_integrator: If True, also register GlobalIntegrator (default: False)
@@ -7610,13 +7610,13 @@ def register_hici_to_model(
 
         # 3. Register global memory (BEFORE optimizer!)
         # For simple global memory:
-        register_hici_to_model(model, num_local_slots=16)
+        register_hici_to_model(model, num_local_slots=8)
 
         # For hierarchical memory:
         register_hici_to_model(
             model,
-            num_local_slots=16,  # local slots
-            global_slots=16,       # higher-level global slots
+            num_local_slots=8,   # local slots
+            global_slots=4,        # higher-level global slots
             use_global_integrator=True
         )
 
@@ -7879,7 +7879,7 @@ def register_hici_to_model(
 
 # def register_hici_to_model(
 #     model,
-#     num_local_slots=16,
+#     num_local_slots=8,
 #     recurrence_size=256
 # ):
 #     # region
@@ -7890,7 +7890,7 @@ def register_hici_to_model(
 
 #     Args:
 #         model: LlamaForCausalLM or PeftModelForCausalLM
-#         num_local_slots: Number of learnable memory slots per layer (default: 16)
+#         num_local_slots: Number of learnable memory slots per layer (default: 8)
 #         recurrence_size: Number of tokens to carry from previous chunk (default: 256)
 
 #     Example usage in fine-tune.py:
@@ -7901,7 +7901,7 @@ def register_hici_to_model(
 #         replace_llama_attn(use_flash_attn=True, use_full=False)
 
 #         # 3. Register global memory (BEFORE optimizer!)
-#         register_hici_to_model(model, num_local_slots=16, recurrence_size=256)
+#         register_hici_to_model(model, num_local_slots=8, recurrence_size=256)
 
 #         # 4. Setup LoRA (if needed)
 #         model = get_peft_model(model, lora_config)
