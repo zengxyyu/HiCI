@@ -110,7 +110,7 @@ Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
 {HICI_ARCH_DESCRIPTION}
 
 ```
-Input (48K tokens) → 8 segments × 6K
+Input (48K tokens) → 4 segments × 12K
   Stage 1: 8 local slots per segment → L_i
   Stage 2: multi-view stats → K=4 global slots G
   Stage 3: Q=[chunk], KV=[G, L_i, chunk] → Flash Attention
@@ -135,14 +135,14 @@ trainable_params.bin  (~4 GB)
 
 - **Base Model**: Qwen/Qwen3-8B
 - **Context Length**: 49,152 tokens (48K)
-- **Segments**: 8 × 6,144 tokens
-- **Local Memory Slots (M)**: 8 per segment
-- **Global Memory Slots (K)**: 4
-- **Memory Heads**: 8, Bottleneck dim: 512
+- **Segments**: 4 × 12,288 tokens
+- **Local Representation Slots (M)**: 8 per segment
+- **Global Representation Slots (K)**: 4
+- **HiCI Attention Heads**: 8, Bottleneck dim: 512
 - **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
 - **Checkpoint**: step 500 / 1000
 - **Batch**: per_device=1, grad_accum=8 (effective batch=8)
-- **LR**: 2e-5 (LoRA), 2e-4 (memory modules), grad clip=0.3
+- **LR**: 2e-5 (LoRA), 2e-4 (HiCI modules), grad clip=0.3
 - **Precision**: bf16
 - **Hardware**: 8× H200 141GB, DeepSpeed Stage 2
 
@@ -242,13 +242,13 @@ trainable_params.bin  (~2 GB)
 - **Base Model**: meta-llama/Llama-2-7b-hf
 - **Context Length**: 8,192 tokens (8K)
 - **Segments**: 4 × 2,048 tokens
-- **Local Memory Slots (M)**: 8 per segment
-- **Global Memory Slots (K)**: 4
-- **Memory Heads**: 8, Bottleneck dim: 512
+- **Local Representation Slots (M)**: 8 per segment
+- **Global Representation Slots (K)**: 4
+- **HiCI Attention Heads**: 8, Bottleneck dim: 512
 - **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
 - **Checkpoint**: step 2000 / 2000
 - **Batch**: per_device=1, grad_accum=8 (effective batch=8)
-- **LR**: 2e-5 (LoRA), 2e-4 (memory modules), grad clip=0.3
+- **LR**: 2e-5 (LoRA), 2e-4 (HiCI modules), grad clip=0.3
 - **Precision**: bf16
 - **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
 
