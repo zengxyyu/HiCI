@@ -595,11 +595,11 @@ python3 eval.py \
 If you find this project useful in your research, please consider citing:
 
 ```bibtex
-@article{zeng2025hici,
+@article{zeng2026hici,
   title={HiCI: Hierarchical Construction-Integration for Long-Context Attention},
   author={Zeng, Xiangyu and Xu, Qi and Wang, Yunke and Xu, Chang},
   journal={arXiv preprint arXiv:2603.20843},
-  year={2025}
+  year={2026}
 }
 ```
 
