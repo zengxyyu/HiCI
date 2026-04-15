@@ -28,11 +28,9 @@ from functools import partial
 from typing import Dict, Optional, Sequence
 
 import torch
-import torch.nn.functional as F
 import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer, DataCollatorForLanguageModeling
-from transformers.modeling_outputs import CausalLMOutputWithPast
 from qwen3_attn_hici import (
     replace_qwen3_attn,
     register_hici_to_qwen3_model,
@@ -51,7 +49,7 @@ IGNORE_INDEX = -100
 
 class LayeredLRTrainer(Trainer):
     """
-    Custom Trainer that supports different learning rates for global memory parameters.
+    Custom Trainer that supports different learning rates for HiCI parameters.
     """
 
     def create_optimizer(self):
@@ -77,11 +75,11 @@ class LayeredLRTrainer(Trainer):
                     else:
                         other_params.append(p)
 
-                memory_params = local_constructor_params + global_integrator_params
+                hici_params = local_constructor_params + global_integrator_params
 
                 optimizer_grouped_parameters = [
                     {
-                        "params": memory_params,
+                        "params": hici_params,
                         "lr": self.args.hici_lr,
                         "weight_decay": self.args.weight_decay,
                     },
@@ -101,20 +99,20 @@ class LayeredLRTrainer(Trainer):
                 )
 
                 if is_main_process:
-                    global_memory_count = sum(p.numel() for p in local_constructor_params)
-                    hierarchical_count = sum(p.numel() for p in global_integrator_params)
-                    memory_count = global_memory_count + hierarchical_count
+                    local_constructor_count = sum(p.numel() for p in local_constructor_params)
+                    global_integrator_count = sum(p.numel() for p in global_integrator_params)
+                    hici_count = local_constructor_count + global_integrator_count
                     other_count = sum(p.numel() for p in other_params)
-                    total_count = memory_count + other_count
+                    total_count = hici_count + other_count
 
-                    print(f"\n  📊 Memory Module Parameters Breakdown:")
+                    print(f"\n  📊 HiCI Module Parameters Breakdown:")
                     print(f"  " + "-" * 68)
-                    if global_memory_count > 0:
-                        print(f"    🧠 LocalMemory: {global_memory_count:,} ({global_memory_count / total_count * 100:.2f}%)")
-                    if hierarchical_count > 0:
-                        print(f"    🏗️  HierarchicalAggregator: {hierarchical_count:,} ({hierarchical_count / total_count * 100:.2f}%)")
+                    if local_constructor_count > 0:
+                        print(f"    🧠 LocalConstructor: {local_constructor_count:,} ({local_constructor_count / total_count * 100:.2f}%)")
+                    if global_integrator_count > 0:
+                        print(f"    🏗️  GlobalIntegrator: {global_integrator_count:,} ({global_integrator_count / total_count * 100:.2f}%)")
                     print(f"  " + "-" * 68)
-                    print(f"    📦 Total Memory: {memory_count:,} LR={self.args.hici_lr:.2e}")
+                    print(f"    📦 Total HiCI: {hici_count:,} LR={self.args.hici_lr:.2e}")
                     print(f"    📚 Other: {other_count:,} LR={self.args.learning_rate:.2e}")
                     print(f"    ⚡ LR Ratio: {self.args.hici_lr / self.args.learning_rate:.1f}x")
                     print("=" * 70 + "\n")
@@ -132,20 +130,20 @@ class LayeredLRTrainer(Trainer):
             self.args.hici_grad_clip is not None
             and self.args.hici_lr is not None
         ):
-            memory_params = []
+            hici_params = []
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     if "local_constructor" in name or "global_integrator" in name:
-                        memory_params.append(param)
+                        hici_params.append(param)
 
-            if memory_params:
+            if hici_params:
                 torch.nn.utils.clip_grad_norm_(
-                    memory_params, max_norm=self.args.hici_grad_clip
+                    hici_params, max_norm=self.args.hici_grad_clip
                 )
 
             if not hasattr(self, "_grad_clip_printed"):
                 if self.args.local_rank <= 0:
-                    print(f"\n  🧠 Memory gradient clip: {self.args.hici_grad_clip}")
+                    print(f"\n  🧠 HiCI gradient clip: {self.args.hici_grad_clip}")
                 self._grad_clip_printed = True
 
         return loss
@@ -189,31 +187,23 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     num_local_slots: int = field(
         default=8,
-        metadata={"help": "Number of Local Representation Slots (default: 8)."},
+        metadata={"help": "Number of local representation slots per segment (default: 8)."},
     )
     global_slots: int = field(
         default=16,
-        metadata={"help": "Number of Global Representation Slots (default: 16)."},
-    )
-    num_chunks: int = field(
-        default=4,
-        metadata={"help": "Number of chunks for hierarchical memory."},
+        metadata={"help": "Number of global context slots (default: 16)."},
     )
     use_local_constructor: bool = field(
         default=True,
-        metadata={"help": "Whether to use local memory attention."},
+        metadata={"help": "Whether to use LocalConstructor."},
     )
     use_global_integrator: bool = field(
         default=True,
-        metadata={"help": "Whether to use hierarchical memory aggregator."},
+        metadata={"help": "Whether to use GlobalIntegrator."},
     )
-    use_flash_plus: Optional[bool] = field(
+    use_local_constructor_flash: Optional[bool] = field(
         default=True,
-        metadata={"help": "Whether to use LocalConstructorFlashPlus."},
-    )
-    use_local_constructor_flash: bool = field(
-        default=False,
-        metadata={"help": "Whether to use flash attn in LocalConstructorFlash."},
+        metadata={"help": "Whether to use LocalConstructorFlash (flash-attn, reuses K/V projections) instead of LocalConstructorMulti (standard PyTorch)."},
     )
     use_hierarchical_forward: Optional[bool] = field(
         default=True,
@@ -221,43 +211,28 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     use_attn_init: Optional[bool] = field(
         default=False,
-        metadata={"help": "Initialize Memory Q/K/V from pretrained weights."},
+        metadata={"help": "Initialize HiCI Q/K/V projections from pretrained weights."},
     )
     num_heads: int = field(
         default=32,
-        metadata={"help": "Number of attention heads in memory module."},
+        metadata={"help": "Number of attention heads in HiCI module."},
     )
     use_bottleneck: bool = field(
         default=True,
-        metadata={"help": "Whether to use bottleneck in hierarchical memory."},
+        metadata={"help": "Whether to use bottleneck in GlobalIntegrator."},
     )
     bottleneck_dim: int = field(
         default=4096,
-        metadata={"help": "Bottleneck dimension for memory compression."},
-    )
-    shared_compress_dim: int = field(
-        default=128,
-        metadata={
-            "help": "Shared compressor intermediate dimension for GlobalIntegratorShared "
-            "(only used when use_shared_compressor=True, default: 128). "
-            "Recommended: 128 for 7B/8B, 160 for 13B."
-        },
+        metadata={"help": "Bottleneck dimension for GlobalIntegrator compression."},
     )
     hici_lr: Optional[float] = field(
         default=None,
-        metadata={"help": "Separate learning rate for memory parameters. Recommended: 2e-4 to 5e-4."},
+        metadata={"help": "Separate learning rate for HiCI parameters. Recommended: 2e-4 to 5e-4."},
     )
     hici_grad_clip: Optional[float] = field(
         default=None,
-        metadata={"help": "Gradient clipping for memory parameters. Recommended: 0.1 to 0.3."},
+        metadata={"help": "Gradient clipping for HiCI parameters. Recommended: 0.1 to 0.3."},
     )
-    recurrence_size: Optional[int] = field(
-        default=128,
-        metadata={
-            "help": "Number of tokens to carry from previous chunk (Transformer-XL style, default: 128)."
-        },
-    )
-
 
 def smart_tokenizer_and_embedding_resize(
     special_tokens_dict: Dict,
@@ -373,77 +348,6 @@ def train():
     )
 
     # ========================================================================
-    # Chunked CE loss: avoid OOM from Qwen3's 152K vocab
-    # [seq_len, 152064] logits in fp32 = ~28GB at 48K seq.
-    # We compute lm_head + CE in 1024-token chunks with gradient checkpointing,
-    # so peak logits memory is only ~0.6GB.
-    # ========================================================================
-    _CE_CHUNK_SIZE = 1024
-
-    def _qwen3_chunked_ce_forward(
-        self, input_ids=None, attention_mask=None, position_ids=None,
-        past_key_values=None, inputs_embeds=None, labels=None,
-        use_cache=None, output_attentions=None, output_hidden_states=None,
-        return_dict=None, cache_position=None, logits_to_keep=0, **kwargs,
-    ):
-        # Must pass return_dict=True explicitly: the original forward has
-        # @can_return_tuple which sets _is_top_level_module=False on children.
-        # Without it, self.model() might return a tuple instead of namedtuple
-        # if config.use_return_dict=False, breaking attribute access below.
-        outputs = self.model(
-            input_ids=input_ids, attention_mask=attention_mask,
-            position_ids=position_ids, past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds, use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            cache_position=cache_position, return_dict=True, **kwargs,
-        )
-        hidden_states = outputs.last_hidden_state
-
-        if labels is not None:
-            # --- Chunked cross-entropy: never materialize full [seq, 152K] logits ---
-            shift_hidden = hidden_states[:, :-1, :]
-            shift_labels = labels[:, 1:].contiguous()
-            total_tokens = shift_hidden.shape[1]
-
-            total_loss = torch.tensor(0.0, device=hidden_states.device)
-            for st in range(0, total_tokens, _CE_CHUNK_SIZE):
-                ed = min(st + _CE_CHUNK_SIZE, total_tokens)
-
-                def _chunk_ce(h, lab, lm_head=self.lm_head, vs=self.config.vocab_size):
-                    return F.cross_entropy(
-                        lm_head(h).float().view(-1, vs), lab.reshape(-1), reduction='sum'
-                    )
-
-                chunk_loss = torch.utils.checkpoint.checkpoint(
-                    _chunk_ce, shift_hidden[:, st:ed, :], shift_labels[:, st:ed],
-                    use_reentrant=False,
-                )
-                total_loss = total_loss + chunk_loss
-
-            loss = total_loss / total_tokens
-            logits = None  # Don't waste memory; Trainer only needs loss for training
-        else:
-            # Generation / inference: compute logits (only last token if logits_to_keep>0)
-            if isinstance(logits_to_keep, int) and logits_to_keep > 0:
-                logits = self.lm_head(hidden_states[:, -logits_to_keep:, :])
-            else:
-                logits = self.lm_head(hidden_states)
-            loss = None
-
-        return CausalLMOutputWithPast(
-            loss=loss, logits=logits,
-            past_key_values=outputs.past_key_values,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-    transformers.models.qwen3.modeling_qwen3.Qwen3ForCausalLM.forward = _qwen3_chunked_ce_forward
-    rank = int(os.environ.get("RANK", 0))
-    if rank == 0:
-        print(f"Chunked CE loss enabled (chunk_size={_CE_CHUNK_SIZE}, vocab={152064})")
-
-    # ========================================================================
     # Set RoPE scaling factor (if target context > native context)
     # ========================================================================
     config = transformers.AutoConfig.from_pretrained(
@@ -509,20 +413,18 @@ def train():
         )
 
     # ========================================================================
-    # Register Global Memory Module (CRITICAL: Before optimizer initialization!)
+    # Register HiCI modules (CRITICAL: Before optimizer initialization!)
     # ========================================================================
     register_hici_to_qwen3_model(
         model,
         num_local_slots=training_args.num_local_slots,
         global_slots=training_args.global_slots,
-        num_chunks=training_args.num_chunks,
         num_heads=training_args.num_heads,
         use_bottleneck=training_args.use_bottleneck,
         bottleneck_dim=training_args.bottleneck_dim,
-        shared_compress_dim=training_args.shared_compress_dim,
         use_local_constructor=training_args.use_local_constructor,
         use_global_integrator=training_args.use_global_integrator,
-        use_flash_plus=training_args.use_flash_plus,
+        use_local_constructor_flash=training_args.use_local_constructor_flash,
         use_attn_init=training_args.use_attn_init,
     )
 
@@ -616,7 +518,7 @@ def train():
         )
         model = get_peft_model(model, config)
 
-        # Enable trainable params (embed, norm, memory modules)
+        # Enable trainable params (embed, norm, HiCI modules)
         [
             p.requires_grad_()
             for n, p in model.named_parameters()
@@ -639,9 +541,8 @@ def train():
             elif (
                 "local_constructor" in n
                 or "global_integrator" in n
-                or "hierarchical_agg" in n
             ):
-                category = "Memory Modules"
+                category = "HiCI Modules"
             elif "embed" in n.lower():
                 category = "Embeddings"
             elif "norm" in n.lower():
@@ -660,45 +561,42 @@ def train():
         for category, count in sorted(trainable_params_dict.items()):
             print(f"  {category:20s}: {count:15,} params ({count / total_trainable * 100:5.2f}%)")
 
-        if "Memory Modules" in trainable_params_dict:
-            gm_count = sum(p.numel() for n, p in model.named_parameters() if p.requires_grad and "local_constructor" in n)
-            ha_count = sum(
-                p.numel() for n, p in model.named_parameters()
-                if p.requires_grad and ("global_integrator" in n or "hierarchical_agg" in n)
-            )
-            if gm_count > 0:
-                print(f"    {'└─ GlobalMemory':20s}: {gm_count:15,} params")
-            if ha_count > 0:
-                print(f"    {'└─ HierarchicalAgg':20s}: {ha_count:15,} params")
+        if "HiCI Modules" in trainable_params_dict:
+            lc_count = sum(p.numel() for n, p in model.named_parameters() if p.requires_grad and "local_constructor" in n)
+            gi_count = sum(p.numel() for n, p in model.named_parameters() if p.requires_grad and "global_integrator" in n)
+            if lc_count > 0:
+                print(f"    {'└─ LocalConstructor':20s}: {lc_count:15,} params")
+            if gi_count > 0:
+                print(f"    {'└─ GlobalIntegrator':20s}: {gi_count:15,} params")
 
         print(f"  {'─' * 20}   {'─' * 15}   {'─' * 7}")
         print(f"  {'Total Trainable':20s}: {total_trainable:15,} params ({total_trainable / total_params * 100:.2f}% of total)")
         print(f"  {'Total Params':20s}: {total_params:15,} params")
 
     # Trainable params validation warnings
-    has_memory_in_trainable = "local_constructor" in training_args.trainable_params
-    has_hierarchical_in_trainable = "hierarchical" in training_args.trainable_params
-    has_memory_params = "Memory Modules" in trainable_params_dict
+    has_hici_in_trainable = "local_constructor" in training_args.trainable_params or "global_integrator" in training_args.trainable_params
+    has_hici_params = "HiCI Modules" in trainable_params_dict
 
     if rank <= 0:
-        if has_memory_in_trainable and not has_memory_params:
+        if has_hici_in_trainable and not has_hici_params:
             print(
-                "\n⚠️  WARNING: 'local_constructor' specified in --trainable_params but no memory parameters found!"
+                "\n⚠️  WARNING: 'local_constructor'/'global_integrator' specified in --trainable_params but no HiCI parameters found!"
             )
-        elif not has_memory_in_trainable and has_memory_params:
+        elif not has_hici_in_trainable and has_hici_params:
             print(
-                "\n⚠️  WARNING: Memory module parameters found but not in --trainable_params!"
+                "\n⚠️  WARNING: HiCI module parameters found but not in --trainable_params!"
             )
             print(
                 "    Add '--trainable_params \"embed,norm,local_constructor,global_integrator\"' to enable training."
             )
 
+        has_global_integrator_in_trainable = "global_integrator" in training_args.trainable_params
         if training_args.use_global_integrator:
-            if has_memory_in_trainable and not has_hierarchical_in_trainable:
+            if has_hici_in_trainable and not has_global_integrator_in_trainable:
                 print(
-                    "\n⚠️  WARNING: Using hierarchical memory but 'hierarchical' not in --trainable_params!"
+                    "\n⚠️  WARNING: Using global integrator but 'global_integrator' not in --trainable_params!"
                 )
-                print("    HierarchicalAggregator parameters may not be trained!")
+                print("    GlobalIntegrator parameters may not be trained!")
                 print(
                     "    Recommended: '--trainable_params \"embed,norm,local_constructor,global_integrator\"'"
                 )
@@ -726,7 +624,7 @@ def train():
             print(f"  Output dir: {training_args.output_dir}")
             print(f"  Found {len(checkpoint_dirs)} checkpoints")
             print(f"  Trainer will resume from: {latest_checkpoint}")
-            print(f"  Memory slots: {training_args.num_local_slots}")
+            print(f"  Local slots: {training_args.num_local_slots}")
             print("=" * 70 + "\n")
         else:
             print(f"✅ Training from scratch: {training_args.output_dir}")

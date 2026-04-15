@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Supervised Fine-Tuning for Memory-Augmented LongLoRA
+Supervised Fine-Tuning with HiCI
 
 Key changes vs the original supervised-fine-tune.py:
-1. Uses llama_attn_hici_sft.py (includes memory mechanism)
+1. Uses llama_attn_hici_sft.py (includes HiCI mechanism)
 2. Registers LocalConstructor and HierarchicalAggregator
-3. Correctly loads Stage 1 memory weights
-4. Supports layered learning rates (memory vs base model vs LoRA)
-5. Keeps memory modules trainable
+3. Correctly loads Stage 1 HiCI weights
+4. Supports layered learning rates (HiCI vs base model vs LoRA)
+5. Keeps HiCI modules trainable
 """
 
 import io
@@ -48,7 +48,7 @@ DEFAULT_UNK_TOKEN = "<unk>"
 
 class LayeredLRTrainer(Trainer):
     """
-    Custom Trainer that supports different learning rates for global memory parameters.
+    Custom Trainer that supports different learning rates for HiCI parameters.
 
     Usage:
         trainer = LayeredLRTrainer(
@@ -62,7 +62,7 @@ class LayeredLRTrainer(Trainer):
         """
         Create optimizer with separate learning rates for different parameter groups.
 
-        If args.hici_lr is set, global memory parameters use that lr,
+        If args.hici_lr is set, HiCI parameters use that lr,
         while other parameters use args.learning_rate.
         """
         if self.optimizer is None:
@@ -85,7 +85,7 @@ class LayeredLRTrainer(Trainer):
                     if not p.requires_grad:
                         continue
 
-                    # Check if this is a memory module parameter
+                    # Check if this is a HiCI module parameter
                     if "local_constructor" in n:
                         local_constructor_params.append(p)
                     elif "global_integrator" in n:
@@ -93,13 +93,13 @@ class LayeredLRTrainer(Trainer):
                     else:
                         other_params.append(p)
 
-                # Combine memory params for optimizer (may be empty if no memory modules)
-                memory_params = local_constructor_params + global_integrator_params
+                # Combine HiCI params for optimizer (may be empty if no HiCI modules)
+                hici_params = local_constructor_params + global_integrator_params
 
                 # Create parameter groups with different learning rates
                 optimizer_grouped_parameters = [
                     {
-                        "params": memory_params,
+                        "params": hici_params,
                         "lr": self.args.hici_lr,
                         "weight_decay": self.args.weight_decay,
                     },
@@ -124,24 +124,24 @@ class LayeredLRTrainer(Trainer):
 
                 # Print summary with detailed breakdown (only on rank 0)
                 if is_main_process:
-                    global_memory_count = sum(p.numel() for p in local_constructor_params)
+                    local_constructor_count = sum(p.numel() for p in local_constructor_params)
                     hierarchical_count = sum(
                         p.numel() for p in global_integrator_params
                     )
-                    memory_count = global_memory_count + hierarchical_count
+                    hici_count = local_constructor_count + hierarchical_count
                     other_count = sum(p.numel() for p in other_params)
-                    total_count = memory_count + other_count
+                    total_count = hici_count + other_count
 
-                    print(f"\n  📊 Memory Module Parameters Breakdown:")
+                    print(f"\n  📊 HiCI Module Parameters Breakdown:")
                     print(f"  " + "-" * 68)
 
                     if global_memory_count > 0:
-                        print(f"    🧠 LocalMemory:")
+                        print(f"    🧠 LocalConstructor:")
                         print(
-                            f"       Count: {global_memory_count:,} ({global_memory_count / total_count * 100:.2f}%)"
+                            f"       Count: {local_constructor_count:,} ({local_constructor_count / total_count * 100:.2f}%)"
                         )
                     else:
-                        print(f"    🧠 LocalMemory: Not enabled (0 parameters)")
+                        print(f"    🧠 LocalConstructor: Not enabled (0 parameters)")
 
                     if hierarchical_count > 0:
                         print(f"    🏗️  HierarchicalAggregator:")
@@ -155,7 +155,7 @@ class LayeredLRTrainer(Trainer):
 
                     print(f"  " + "-" * 68)
                     print(
-                        f"    📦 Total Memory Modules: {memory_count:,} ({memory_count / total_count * 100:.2f}%)"
+                        f"    📦 Total HiCI Modules: {hici_count:,} ({hici_count / total_count * 100:.2f}%)"
                     )
                     print(f"    📝 Learning Rate: {self.args.hici_lr:.2e}")
 
@@ -181,9 +181,9 @@ class LayeredLRTrainer(Trainer):
 
     def training_step(self, model, inputs):
         """
-        Perform a training step with separate gradient clipping for memory modules.
+        Perform a training step with separate gradient clipping for HiCI modules.
 
-        If args.hici_grad_clip is set, memory module parameters get stricter clipping
+        If args.hici_grad_clip is set, HiCI module parameters get stricter clipping
         than other parameters (which use args.max_grad_norm).
         """
         # Call parent's training_step to do forward + backward
@@ -195,22 +195,22 @@ class LayeredLRTrainer(Trainer):
             and self.args.hici_lr is not None
         ):
             # Separate parameters into groups
-            memory_params = []
+            hici_params = []
             other_params = []
 
             for name, param in model.named_parameters():
                 if param.grad is not None:
-                    # Check if this is a memory module parameter
+                    # Check if this is a HiCI module parameter
                     if "local_constructor" in name or "global_integrator" in name:
-                        memory_params.append(param)
+                        hici_params.append(param)
                     else:
                         other_params.append(param)
 
-            # Apply stricter gradient clipping to memory modules ONLY
+            # Apply stricter gradient clipping to HiCI modules ONLY
             # Other parameters (embed, norm) are stable and don't need clipping
-            if memory_params:
+            if hici_params:
                 torch.nn.utils.clip_grad_norm_(
-                    memory_params, max_norm=self.args.hici_grad_clip
+                    hici_params, max_norm=self.args.hici_grad_clip
                 )
 
             # Note: Other parameters don't use gradient clipping
@@ -223,9 +223,9 @@ class LayeredLRTrainer(Trainer):
                     print("\n" + "=" * 70)
                     print("Gradient Clipping Configuration")
                     print("=" * 70)
-                    print(f"  🧠 Memory Modules:")
+                    print(f"  🧠 HiCI Modules:")
                     print(f"     Max Gradient Norm: {self.args.hici_grad_clip}")
-                    print(f"     Num Parameters: {len(memory_params)}")
+                    print(f"     Num Parameters: {len(hici_params)}")
                     print(f"\n  📚 Other Parameters (embed, norm):")
                     print(f"     Max Gradient Norm: None (no clipping)")
                     print(f"     Num Parameters: {len(other_params)}")
@@ -318,7 +318,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
 
-    # Memory module parameters (must match fine-tune_hici.py)
+    # HiCI module parameters (must match fine-tune_hici.py)
     num_local_slots: int = field(
         default=16,
         metadata={"help": "Number of Local Representation Slots for LocalConstructor"},
@@ -327,33 +327,27 @@ class TrainingArguments(transformers.TrainingArguments):
         default=4,
         metadata={"help": "Number of Global Representation Slots for HierarchicalAggregator"},
     )
-    num_chunks: int = field(
-        default=4,
-        metadata={
-            "help": "Number of chunks to split each sequence into for hierarchical memory."
-        },
-    )
     use_local_constructor: bool = field(
         default=True,
-        metadata={"help": "Whether to use local memory attention."},
+        metadata={"help": "Whether to use LocalConstructor."},
     )
     use_global_integrator: bool = field(
         default=True,
-        metadata={"help": "Whether to use hierarchical memory aggregator."},
+        metadata={"help": "Whether to use GlobalIntegrator."},
     )
     num_heads: int = field(
         default=8,
-        metadata={"help": "Number of attention heads in the memory module."},
+        metadata={"help": "Number of attention heads in HiCI module."},
     )
     use_bottleneck: bool = field(
         default=True,
         metadata={
-            "help": "Whether to use bottleneck in hierarchical memory aggregator."
+            "help": "Whether to use bottleneck in GlobalIntegrator."
         },
     )
     bottleneck_dim: int = field(
         default=512,
-        metadata={"help": "Bottleneck dimension for memory compression."},
+        metadata={"help": "Bottleneck dimension for HiCI compression."},
     )
     shared_compress_dim: int = field(
         default=128,
@@ -369,11 +363,11 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     use_llama_init: Optional[bool] = field(
         default=False,
-        metadata={"help": "Warm-initialize memory module Q/K/V projections from LLaMA pretrained weights."},
+        metadata={"help": "Warm-initialize HiCI module Q/K/V projections from LLaMA pretrained weights."},
     )
     use_hierarchical_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to use the combined hierarchical forward (local memory + global)."},
+        metadata={"help": "Whether to use the combined hierarchical forward (LocalConstructor + GlobalIntegrator)."},
     )
     recurrence_size: Optional[int] = field(
         default=128,
@@ -383,12 +377,12 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     hici_grad_clip: float = field(
         default=0.3,
-        metadata={"help": "Gradient clipping for memory modules."},
+        metadata={"help": "Gradient clipping for HiCI modules."},
     )
     hici_lr: float = field(
         default=1e-4,
         metadata={
-            "help": "Learning rate for memory modules (higher than base model LR)"
+            "help": "Learning rate for HiCI modules (higher than base model LR)"
         },
     )
 
@@ -631,15 +625,14 @@ def train():
         torch_dtype=torch.bfloat16,
     )
 
-    # Register memory modules BEFORE loading any checkpoint
+    # Register HiCI modules BEFORE loading any checkpoint
     print("\n" + "=" * 80)
-    print("🔥 Registering Memory Modules for SFT")
+    print("🔥 Registering HiCI Modules for SFT")
     print("=" * 80)
     register_hici_to_model(
         model,
         num_local_slots=training_args.num_local_slots,
         global_slots=training_args.global_slots,
-        num_chunks=training_args.num_chunks,
         num_heads=training_args.num_heads,
         use_bottleneck=training_args.use_bottleneck,
         bottleneck_dim=training_args.bottleneck_dim,
@@ -695,7 +688,7 @@ def train():
             # Check if any trainable param name is in this parameter name
             if any([k in n for k in trainable_param_names]):
                 p.requires_grad = True
-            # Memory modules should always be trainable
+            # HiCI modules should always be trainable
             if "local_constructor" in n or "global_integrator" in n:
                 p.requires_grad = True
 
@@ -711,14 +704,14 @@ def train():
     model.enable_input_require_grads()  # required for gradient checkpointing
     model.gradient_checkpointing_enable()  # enable gradient checkpointing
 
-    # LayeredLRTrainer uses hici_lr for memory modules; falls back to uniform lr if unset
+    # LayeredLRTrainer uses hici_lr for HiCI modules; falls back to uniform lr if unset
     trainer = LayeredLRTrainer(
         model=model, tokenizer=tokenizer, args=training_args, **data_module
     )
 
     if training_args.resume_from_checkpoint:
         print(f"\n🔥 Resuming from checkpoint: {training_args.resume_from_checkpoint}")
-        print("   Memory modules weights will be loaded from checkpoint")
+        print("   HiCI module weights will be loaded from checkpoint")
         print()
 
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)

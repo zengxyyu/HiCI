@@ -50,9 +50,9 @@ MAX_SEQ_LENGTH=8192
 # Leave empty/0 for native 32K context
 MODEL_MAX_LENGTH=0
 
-# Optional: load memory weights from stage 1 pre-training
-# PRETRAINED_MEMORY_PATH="./checkpoints/Qwen3-8b-hici-48k/checkpoint-2000/trainable_params.bin"
-PRETRAINED_MEMORY_PATH=""
+# Optional: load HiCI weights from stage 1 pre-training
+# PRETRAINED_HICI_PATH="./checkpoints/Qwen3-8b-hici-48k/checkpoint-2000/trainable_params.bin"
+PRETRAINED_HICI_PATH=""
 
 # Training
 LEARNING_RATE=2e-5
@@ -67,20 +67,19 @@ LORA_R=8
 LORA_ALPHA=16
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
 
-# HiCI Memory (match stage 1 config!)
-NUM_MEMORY_SLOTS=8
+# HiCI module config (match stage 1 config!)
+NUM_LOCAL_SLOTS=8
 GLOBAL_SLOTS=4
 NUM_HEADS=8
-NUM_CHUNKS=8
 BOTTLENECK_DIM=512
-GLOBAL_MEMORY_LR=2e-4
-MEMORY_GRAD_CLIP=0.3
+HICI_LR=2e-4
+HICI_GRAD_CLIP=0.3
 RECURRENCE_SIZE=128
 
 # Attention
 USE_FLASH_ATTN=True
 USE_HIERARCHICAL_FORWARD=True
-USE_FLASH_PLUS=False
+USE_LOCAL_CONSTRUCTOR_FLASH=False
 
 # DeepSpeed
 DEEPSPEED_CONFIG="ds_configs/stage2.json"
@@ -104,10 +103,10 @@ echo "Dataset:       $DATASET_NAME ($DATASET_SPLIT)"
 echo "Max seq len:   $MAX_SEQ_LENGTH"
 echo "Steps:         $MAX_STEPS"
 echo "Batch size:    $BATCH_SIZE x $GRAD_ACCUM (effective: $((BATCH_SIZE * GRAD_ACCUM * NPROC_PER_NODE * NNODES)))"
-echo "Memory config: slots=$NUM_MEMORY_SLOTS, global=$GLOBAL_SLOTS, heads=$NUM_HEADS"
+echo "HiCI config: slots=$NUM_LOCAL_SLOTS, global=$GLOBAL_SLOTS, heads=$NUM_HEADS"
 echo "DeepSpeed:     $DEEPSPEED_CONFIG"
-if [ -n "$PRETRAINED_MEMORY_PATH" ]; then
-    echo "Memory weights: $PRETRAINED_MEMORY_PATH"
+if [ -n "$PRETRAINED_HICI_PATH" ]; then
+    echo "HiCI weights: $PRETRAINED_HICI_PATH"
 fi
 echo "============================================"
 echo ""
@@ -149,29 +148,28 @@ CMD="torchrun \
     --deepspeed $DEEPSPEED_CONFIG \
     --use_flash_attn $USE_FLASH_ATTN \
     --use_hierarchical_forward $USE_HIERARCHICAL_FORWARD \
-    --use_flash_plus $USE_FLASH_PLUS \
+    --use_local_constructor_flash $USE_LOCAL_CONSTRUCTOR_FLASH \
     --low_rank_training $LOW_RANK_TRAINING \
     --lora_r $LORA_R \
     --lora_alpha $LORA_ALPHA \
     --trainable_params $TRAINABLE_PARAMS \
-    --num_local_slots $NUM_MEMORY_SLOTS \
+    --num_local_slots $NUM_LOCAL_SLOTS \
     --global_slots $GLOBAL_SLOTS \
     --num_heads $NUM_HEADS \
-    --num_chunks $NUM_CHUNKS \
     --use_bottleneck True \
     --bottleneck_dim $BOTTLENECK_DIM \
     --recurrence_size $RECURRENCE_SIZE \
-    --hici_lr $GLOBAL_MEMORY_LR \
-    --hici_grad_clip $MEMORY_GRAD_CLIP"
+    --hici_lr $HICI_LR \
+    --hici_grad_clip $HICI_GRAD_CLIP"
 
 # Optional: RoPE extension
 if [ "$MODEL_MAX_LENGTH" -gt 0 ] 2>/dev/null; then
     CMD="$CMD --model_max_length $MODEL_MAX_LENGTH"
 fi
 
-# Optional: pre-trained memory weights
-if [ -n "$PRETRAINED_MEMORY_PATH" ] && [ -f "$PRETRAINED_MEMORY_PATH" ]; then
-    CMD="$CMD --pretrained_memory_path $PRETRAINED_MEMORY_PATH"
+# Optional: pre-trained HiCI weights
+if [ -n "$PRETRAINED_HICI_PATH" ] && [ -f "$PRETRAINED_HICI_PATH" ]; then
+    CMD="$CMD --pretrained_hici_path $PRETRAINED_HICI_PATH"
 fi
 
 # Optional: local data path instead of HuggingFace Hub

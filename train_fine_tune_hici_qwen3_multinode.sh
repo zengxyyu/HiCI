@@ -44,22 +44,19 @@ hici_lr=2e-4
 hici_grad_clip=0.3
 low_rank_training=True
 
-# Memory configuration
+# HiCI configuration
 use_local_constructor=True
 use_global_integrator=True
-num_chunks=8
 NUM_LOCAL_SLOTS=8
 global_slots=4
 num_heads=8
 use_bottleneck=True
 bottleneck_dim=512
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
-recurrence_size=128
 
-# Memory module and forward function
+# HiCI module and forward function
 use_local_constructor_flash=False
 use_hierarchical_forward=True
-use_flash_plus=False
 use_attn_init=False
 
 deepspeed_config="ds_configs/stage2.json"
@@ -113,10 +110,8 @@ torchrun \
       --deepspeed $deepspeed_config \
       --tf32 True \
       --max_steps 1000 \
-      --num_chunks $num_chunks \
       --num_local_slots $NUM_LOCAL_SLOTS \
       --global_slots $global_slots \
-      --recurrence_size $recurrence_size \
       --use_local_constructor $use_local_constructor \
       --use_global_integrator $use_global_integrator \
       --trainable_params $TRAINABLE_PARAMS \
@@ -124,11 +119,10 @@ torchrun \
       --num_heads $num_heads \
       --use_bottleneck $use_bottleneck \
       --bottleneck_dim $bottleneck_dim \
-      --use_flash_plus $use_flash_plus \
+      --use_local_constructor_flash $use_local_constructor_flash \
       --use_attn_init $use_attn_init \
       --use_hierarchical_forward $use_hierarchical_forward \
-      --hici_grad_clip $hici_grad_clip \
-      --use_local_constructor_flash $use_local_constructor_flash
+      --hici_grad_clip $hici_grad_clip
 
 echo ""
 echo "================================"

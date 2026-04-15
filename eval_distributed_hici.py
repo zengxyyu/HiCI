@@ -22,7 +22,7 @@ import random
 import transformers
 from peft import PeftModel
 
-# Use llama_attn_hici to support the HiCI memory mechanism
+# Use llama_attn_hici to support HiCI
 # from llama_attn_memory_inject import replace_llama_attn, register_hici_to_model
 from llama_attn_hici import (
     replace_llama_attn,
@@ -224,11 +224,11 @@ class EvalArguments:
     )
     use_local_constructor: bool = field(
         default=True,
-        metadata={"help": "Whether to use local memory attention."},
+        metadata={"help": "Whether to use LocalConstructor."},
     )
     use_global_integrator: bool = field(
         default=True,
-        metadata={"help": "Whether to use hierarchical memory attention."},
+        metadata={"help": "Whether to use GlobalIntegrator."},
     )
     use_local_constructor_flash: bool = field(
         default=False,
@@ -236,21 +236,21 @@ class EvalArguments:
     )
     use_hierarchical_forward: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to use hierarchical forward (local + global memory)."},
+        metadata={"help": "Whether to use hierarchical forward (LocalConstructor + GlobalIntegrator)."},
     )
     num_heads: int = field(
         default=32,
-        metadata={"help": "Number of attention heads in the memory module."},
+        metadata={"help": "Number of attention heads in HiCI module."},
     )
     use_bottleneck: bool = field(
         default=True,
         metadata={
-            "help": "Whether to use bottleneck in hierarchical memory aggregator."
+            "help": "Whether to use bottleneck in GlobalIntegrator."
         },
     )
     bottleneck_dim: int = field(
         default=4096,
-        metadata={"help": "Bottleneck dimension for memory compression."},
+        metadata={"help": "Bottleneck dimension for HiCI compression."},
     )
     recurrence_size: Optional[int] = field(
         default=128,
@@ -261,7 +261,7 @@ class EvalArguments:
     eval_mode: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Evaluation mode: None (chunked, same as training) or 'full' (full attention, no memory)."
+            "help": "Evaluation mode: None (chunked, same as training) or 'full' (full attention, no HiCI)."
         },
     )
 
@@ -276,8 +276,8 @@ def run_eval(args: EvalArguments):
 
     if args.flash_attn:
         # Evaluation modes:
-        # - None or "chunked": Chunked attention with memory (same as training)
-        # - "full": Full attention without memory (LongLoRA style)
+        # - None or "chunked": Chunked HiCI attention (same as training)
+        # - "full": Full attention without HiCI (LongLoRA style)
         # replace_llama_attn(
         #     use_flash_attn=True,
         #     use_full=True,
@@ -332,9 +332,9 @@ def run_eval(args: EvalArguments):
         model.resize_token_embeddings(32001)
         print(f"📊 Resized token embeddings to 32001 (Llama 2)")
 
-    # Register global memory modules (CRITICAL: must be done before loading PEFT weights!)
+    # Register HiCI modules (CRITICAL: must be done before loading PEFT weights!)
     print(f"\n{'=' * 70}")
-    print(f"Registering Global Memory for Evaluation")
+    print(f"Registering HiCI Modules for Evaluation")
     print(f"{'=' * 70}")
     # register_hici_to_model(
     #     model,
@@ -363,7 +363,7 @@ def run_eval(args: EvalArguments):
 
     # CRITICAL: Convert local_constructor and global_integrator to the same dtype as the model (fp16)
     # These modules are created in fp32 by default, but model is fp16
-    print(f"Converting memory modules to {torch_dtype}...")
+    print(f"Converting HiCI modules to {torch_dtype}...")
     for layer in model.model.layers:
         if hasattr(layer.self_attn, "local_constructor"):
             layer.self_attn.local_constructor = layer.self_attn.local_constructor.to(
@@ -374,18 +374,18 @@ def run_eval(args: EvalArguments):
                 layer.self_attn.global_integrator.to(torch_dtype)
             )
 
-    print(f"✅ Memory modules registration complete!")
-    print(f"   Number of memory slots: {args.num_local_slots}")
+    print(f"✅ HiCI modules registration complete!")
+    print(f"   Number of local slots: {args.num_local_slots}")
     print(f"   dtype: {torch_dtype}")
     print(f"{'=' * 70}\n")
 
-    # For full fine-tuning: reload checkpoint to restore memory module weights
-    # Background: Memory modules are added dynamically via register_hici_to_model(),
+    # For full fine-tuning: reload checkpoint to restore HiCI module weights
+    # Background: HiCI modules are added dynamically via register_hici_to_model(),
     # not defined in LlamaAttention.__init__. HuggingFace's from_pretrained() ignores
     # these extra weights, so we need to explicitly reload them after registration.
     if not args.peft_model:
         print(f"\n{'=' * 70}")
-        print(f"🔄 Loading memory weights from full fine-tuned checkpoint...")
+        print(f"🔄 Loading HiCI weights from full fine-tuned checkpoint...")
         print(f"{'=' * 70}")
 
         # Try single file first, then check for sharded checkpoints
@@ -415,23 +415,23 @@ def run_eval(args: EvalArguments):
                     print(f"   Found {len(checkpoint_files)} shards via pattern matching")
 
         if checkpoint_files:
-            total_memory_keys = 0
+            total_hici_keys = 0
             for ckpt_file in checkpoint_files:
                 if os.path.isfile(ckpt_file):
                     state_dict = torch.load(ckpt_file, map_location=model.device)
 
-                    # Only load memory-related keys to avoid overwriting model weights
-                    memory_state_dict = {k: v for k, v in state_dict.items()
+                    # Only load HiCI-related keys to avoid overwriting model weights
+                    hici_state_dict = {k: v for k, v in state_dict.items()
                                         if 'local_constructor' in k or 'global_integrator' in k}
 
-                    if memory_state_dict:
-                        model.load_state_dict(memory_state_dict, strict=False)
-                        total_memory_keys += len(memory_state_dict)
-                        print(f"   Loaded {len(memory_state_dict)} memory keys from {os.path.basename(ckpt_file)}")
+                    if hici_state_dict:
+                        model.load_state_dict(hici_state_dict, strict=False)
+                        total_hici_keys += len(hici_state_dict)
+                        print(f"   Loaded {len(hici_state_dict)} HiCI keys from {os.path.basename(ckpt_file)}")
 
-                    del state_dict  # Free memory
+                    del state_dict
 
-            print(f"✅ Loaded {total_memory_keys} total memory-related parameters")
+            print(f"✅ Loaded {total_hici_keys} total HiCI parameters")
         else:
             print(f"❌ Error: Could not find checkpoint file at {args.base_model}")
             print(f"   Tried: pytorch_model.bin, pytorch_model.bin.index.json, pytorch_model-*.bin")
@@ -481,7 +481,7 @@ def run_eval(args: EvalArguments):
         eval_mode_desc = {
             None: "chunked (same as training)",
             "chunked": "chunked (same as training)",
-            "full": "full attention (no memory)",
+            "full": "full attention (no HiCI)",
         }
         print(
             f"eval mode: {args.eval_mode} -> {eval_mode_desc.get(args.eval_mode, 'unknown')}"

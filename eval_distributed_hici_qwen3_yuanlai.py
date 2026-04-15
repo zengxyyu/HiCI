@@ -208,10 +208,12 @@ def run_eval(args: EvalArguments):
             # Use official Qwen3 implementation with flash_attention_2 backend.
             pass
         elif args.eval_mode == "full":
-            # eval_mode="full" with peft_model: use official flash_attention_2 backend.
-            # LoRA adapters are on q/k/v/o projections (linear layer level) and work
-            # transparently with the official attention implementation — no monkey-patch needed.
-            pass
+            # Full attention with HiCI (has peft_model)
+            replace_qwen3_attn(
+                use_flash_attn=True,
+                use_full=True,
+                use_hierarchical_forward=False,
+            )
         elif args.eval_mode == "full_hierarchical":
             # Full attention + HiCI
             replace_qwen3_attn(
@@ -239,15 +241,14 @@ def run_eval(args: EvalArguments):
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
 
     # Load model
-    # For baseline and eval_mode="full": use official flash_attention_2 backend (no monkey-patching).
-    # For HiCI chunked/full_hierarchical: use eager (attention forward replaced by replace_qwen3_attn).
+    # For baseline: use official flash_attention_2 backend (no monkey-patching).
+    # For HiCI: use eager (attention forward is replaced by replace_qwen3_attn).
     load_kwargs = dict(
         config=config,
         cache_dir=args.cache_dir,
         torch_dtype=torch_dtype,
     )
-    use_official_flash2 = args.flash_attn and (is_baseline or args.eval_mode == "full")
-    if use_official_flash2:
+    if is_baseline and args.flash_attn:
         load_kwargs["attn_implementation"] = "flash_attention_2"
     model = transformers.AutoModelForCausalLM.from_pretrained(
         args.base_model, **load_kwargs

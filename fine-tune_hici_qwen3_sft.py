@@ -78,27 +78,26 @@ class HiCIArguments:
     use_full_attn: bool = field(default=False)
     use_hierarchical_forward: bool = field(default=True)
 
-    # --- Memory modules ---
+    # --- HiCI modules ---
     num_local_slots: int = field(default=8)
     global_slots: int = field(default=16)
-    num_chunks: int = field(default=4)
     num_heads: int = field(default=32)
     use_bottleneck: bool = field(default=True)
     bottleneck_dim: int = field(default=4096)
     use_local_constructor: bool = field(default=True)
     use_global_integrator: bool = field(default=True)
-    use_flash_plus: bool = field(default=True)
+    use_local_constructor_flash: bool = field(default=True)
     use_attn_init: bool = field(default=False)
     recurrence_size: int = field(default=128)
 
     # --- Layered learning rate ---
     hici_lr: Optional[float] = field(
         default=None,
-        metadata={"help": "Separate LR for memory modules. Recommended: 2e-4."},
+        metadata={"help": "Separate LR for HiCI modules. Recommended: 2e-4."},
     )
     hici_grad_clip: Optional[float] = field(
         default=None,
-        metadata={"help": "Gradient clipping for memory modules. Recommended: 0.3."},
+        metadata={"help": "Gradient clipping for HiCI modules. Recommended: 0.3."},
     )
 
     # --- LoRA ---
@@ -132,21 +131,21 @@ class HiCIArguments:
                   "E.g., 49152 for Qwen3-8B (native 32K) → 1.5x scaling."},
     )
 
-    # --- Pre-trained memory weights ---
-    pretrained_memory_path: Optional[str] = field(
+    # --- Pre-trained HiCI weights ---
+    pretrained_hici_path: Optional[str] = field(
         default=None,
         metadata={"help": "Path to trainable_params.bin from HiCI pre-training stage 1. "
-                  "Loads memory module weights instead of random init."},
+                  "Loads HiCI module weights instead of random init."},
     )
 
 
 # ============================================================================
-# HiCI SFT Trainer (layered LR + memory gradient clipping)
+# HiCI SFT Trainer (layered LR + gradient clipping)
 # ============================================================================
 
 
 class HiCISFTTrainer(SFTTrainer):
-    """SFTTrainer with layered learning rates for HiCI memory modules."""
+    """SFTTrainer with layered learning rates for HiCI modules."""
 
     def __init__(self, hici_args: HiCIArguments, **kwargs):
         self.hici_args = hici_args
@@ -161,19 +160,19 @@ class HiCISFTTrainer(SFTTrainer):
 
         is_main = self.args.local_rank <= 0
 
-        memory_params = []
+        hici_params = []
         other_params = []
         for n, p in self.model.named_parameters():
             if not p.requires_grad:
                 continue
             if "local_constructor" in n or "global_integrator" in n:
-                memory_params.append(p)
+                hici_params.append(p)
             else:
                 other_params.append(p)
 
         optimizer_grouped_parameters = [
             {
-                "params": memory_params,
+                "params": hici_params,
                 "lr": self.hici_args.hici_lr,
                 "weight_decay": self.args.weight_decay,
             },
@@ -191,13 +190,13 @@ class HiCISFTTrainer(SFTTrainer):
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
         if is_main:
-            mem_count = sum(p.numel() for p in memory_params)
+            hici_count = sum(p.numel() for p in hici_params)
             other_count = sum(p.numel() for p in other_params)
-            total = mem_count + other_count
+            total = hici_count + other_count
             print(f"\n{'='*70}")
             print(f"Layered Learning Rates")
             print(f"{'='*70}")
-            print(f"  Memory modules: {mem_count:,} params, LR={self.hici_args.hici_lr:.2e}")
+            print(f"  HiCI modules: {hici_count:,} params, LR={self.hici_args.hici_lr:.2e}")
             print(f"  Other params:   {other_count:,} params, LR={self.args.learning_rate:.2e}")
             print(f"  LR ratio: {self.hici_args.hici_lr / self.args.learning_rate:.1f}x")
             print(f"{'='*70}\n")
@@ -254,7 +253,7 @@ def print_trainable_summary(model, rank):
         if "lora" in n.lower():
             cat = "LoRA"
         elif "local_constructor" in n or "global_integrator" in n:
-            cat = "Memory Modules"
+            cat = "HiCI Modules"
         elif "embed" in n.lower():
             cat = "Embeddings"
         elif "norm" in n.lower():
@@ -322,35 +321,34 @@ def train():
     )
 
     # ==================================================================
-    # 4. Register HiCI memory modules
+    # 4. Register HiCI modules
     # ==================================================================
     register_hici_to_qwen3_model(
         model,
         num_local_slots=hici_args.num_local_slots,
         global_slots=hici_args.global_slots,
-        num_chunks=hici_args.num_chunks,
         num_heads=hici_args.num_heads,
         use_bottleneck=hici_args.use_bottleneck,
         bottleneck_dim=hici_args.bottleneck_dim,
         use_local_constructor=hici_args.use_local_constructor,
         use_global_integrator=hici_args.use_global_integrator,
-        use_flash_plus=hici_args.use_flash_plus,
+        use_local_constructor_flash=hici_args.use_local_constructor_flash,
         use_attn_init=hici_args.use_attn_init,
     )
 
-    # Optionally load pre-trained memory weights from stage 1
-    if hici_args.pretrained_memory_path:
+    # Optionally load pre-trained HiCI weights from stage 1
+    if hici_args.pretrained_hici_path:
         if rank == 0:
-            print(f"Loading pre-trained memory weights: {hici_args.pretrained_memory_path}")
-        state_dict = torch.load(hici_args.pretrained_memory_path, map_location="cpu")
-        # Only load memory-related keys
-        memory_keys = {
+            print(f"Loading pre-trained HiCI weights: {hici_args.pretrained_hici_path}")
+        state_dict = torch.load(hici_args.pretrained_hici_path, map_location="cpu")
+        # Only load HiCI-related keys
+        hici_keys = {
             k: v for k, v in state_dict.items()
             if "local_constructor" in k or "global_integrator" in k
         }
-        missing, unexpected = model.load_state_dict(memory_keys, strict=False)
+        missing, unexpected = model.load_state_dict(hici_keys, strict=False)
         if rank == 0:
-            print(f"  Loaded {len(memory_keys)} memory params, {len(missing)} missing, {len(unexpected)} unexpected")
+            print(f"  Loaded {len(hici_keys)} HiCI params, {len(missing)} missing, {len(unexpected)} unexpected")
 
     # ==================================================================
     # 5. Load tokenizer
@@ -427,7 +425,7 @@ def train():
         )
         model = get_peft_model(model, lora_config)
 
-        # Enable additional trainable params (embed, norm, memory modules)
+        # Enable additional trainable params (embed, norm, HiCI modules)
         trainable_keys = hici_args.trainable_params.split(",")
         for n, p in model.named_parameters():
             if any(k in n for k in trainable_keys):

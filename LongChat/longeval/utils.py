@@ -124,7 +124,7 @@ def maybe_monkey_patch(args):
 
         use_full_attn_with_memory = getattr(args, "use_full_attn_with_memory", False)
         if use_full_attn_with_memory:
-            hici_attn.USE_FULL_ATTN_WITH_MEMORY = True
+            hici_attn.USE_FULL_ATTN_WITH_HICI = True
             print("=" * 60)
             print("Enabling Full Attention + HiCI mode (debug)")
             print("  No grouping, entire input as one chunk")

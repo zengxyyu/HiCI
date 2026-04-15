@@ -1,4 +1,4 @@
-# Merge LoRA weights with HiCI memory modules (Qwen3 version)
+# Merge LoRA weights with HiCI modules (Qwen3 version)
 #
 # Adapted from merge_lora_weights_hici.py for Qwen3 models.
 # Key difference: uses qwen3_attn_hici instead of llama_attn_hici.
@@ -22,7 +22,7 @@ import qwen3_attn_hici as hici_attn
 
 def parse_config():
     parser = argparse.ArgumentParser(
-        description="Merge LoRA weights with HiCI memory modules (Qwen3)"
+        description="Merge LoRA weights with HiCI modules (Qwen3)"
     )
     parser.add_argument(
         "--base_model", type=str, required=True, help="Path to base Qwen3 model"
@@ -34,14 +34,18 @@ def parse_config():
         "--save_path", type=str, required=True, help="Path to save merged model"
     )
     parser.add_argument("--cache_dir", type=str, default=None)
+    parser.add_argument(
+        "--context_size", type=int, default=-1,
+        help="Context size used during training (for RoPE scaling). e.g. 49152 for 48k"
+    )
 
-    # HiCI memory module parameters (must match training!)
+    # HiCI module parameters (must match training!)
     parser.add_argument("--num_local_slots", type=int, default=8)
     parser.add_argument("--global_slots", type=int, default=4)
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--compress_dim", type=int, default=512)
     parser.add_argument("--shared_compress_dim", type=int, default=128)
-    parser.add_argument("--use_flash_plus", action="store_true", default=False)
+    parser.add_argument("--use_local_constructor_flash", action="store_true", default=False)
     parser.add_argument("--bottleneck_dim", type=int, default=512)
 
     args = parser.parse_args()
@@ -69,10 +73,19 @@ def main(args):
 
     # Step 2: Load base model
     print("\n[2/6] Loading base Qwen3 model...")
+    config = transformers.AutoConfig.from_pretrained(args.base_model, cache_dir=args.cache_dir)
+    if args.context_size > 0:
+        orig_ctx_len = getattr(config, "max_position_embeddings", None)
+        if orig_ctx_len and args.context_size > orig_ctx_len:
+            import math
+            scaling_factor = float(math.ceil(args.context_size / orig_ctx_len))
+            config.rope_scaling = {"type": "linear", "factor": scaling_factor}
+            print(f"  Applied RoPE scaling: factor={scaling_factor} ({orig_ctx_len} -> {args.context_size})")
     model = transformers.AutoModelForCausalLM.from_pretrained(
         args.base_model,
+        config=config,
         cache_dir=args.cache_dir,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
     )
 
@@ -89,12 +102,12 @@ def main(args):
         tokenizer.add_special_tokens({"pad_token": "<|endoftext|>"})
         model.resize_token_embeddings(len(tokenizer))
 
-    # Step 4: Register HiCI memory modules (CRITICAL: before loading weights!)
-    print("\n[4/6] Registering HiCI memory modules...")
+    # Step 4: Register HiCI modules (CRITICAL: before loading weights!)
+    print("\n[4/6] Registering HiCI modules...")
     print(f"  num_local_slots: {args.num_local_slots}")
     print(f"  global_slots:     {args.global_slots}")
     print(f"  num_heads:        {args.num_heads}")
-    print(f"  use_flash_plus:   {args.use_flash_plus}")
+    print(f"  use_local_constructor_flash: {args.use_local_constructor_flash}")
     print(f"  bottleneck_dim:   {args.bottleneck_dim}")
 
     hici_attn.register_hici_to_qwen3_model(
@@ -103,7 +116,7 @@ def main(args):
         global_slots=args.global_slots,
         num_heads=args.num_heads,
         use_global_integrator=True,
-        use_flash_plus=args.use_flash_plus,
+        use_local_constructor_flash=args.use_local_constructor_flash,
         use_bottleneck=True,
         bottleneck_dim=args.bottleneck_dim,
         compress_dim=args.compress_dim,
@@ -118,22 +131,22 @@ def main(args):
 
         hici_keys = [
             k for k in trainable_params.keys()
-            if "memory" in k.lower() or "global" in k.lower() or "hierarchical" in k.lower()
+            if "local_constructor" in k or "global_integrator" in k
         ]
         print(f"  Found {len(trainable_params)} params in trainable_params.bin")
-        print(f"  Including {len(hici_keys)} HiCI memory params")
+        print(f"  Including {len(hici_keys)} HiCI params")
 
         missing, unexpected = model.load_state_dict(trainable_params, strict=False)
 
         loaded_hici = len(hici_keys) - len(
-            [k for k in missing if "memory" in k.lower() or "global" in k.lower() or "hierarchical" in k.lower()]
+            [k for k in missing if "local_constructor" in k or "global_integrator" in k]
         )
         print(f"  Loaded {loaded_hici} HiCI params successfully")
 
         if missing:
             hici_missing = [
                 k for k in missing
-                if "memory" in k.lower() or "global" in k.lower() or "hierarchical" in k.lower()
+                if "local_constructor" in k or "global_integrator" in k
             ]
             if hici_missing:
                 print(f"  WARNING: {len(hici_missing)} HiCI params NOT loaded:")
@@ -141,7 +154,7 @@ def main(args):
                     print(f"    - {k}")
     else:
         print(f"  WARNING: {trainable_params_path} not found!")
-        print("  Memory modules will have random weights.")
+        print("  HiCI modules will have random weights.")
         print("  Run get_trainable_weights.py first:")
         print(f"    python get_trainable_weights.py --checkpoint_path {args.peft_model} "
               f"--trainable_params embed,norm,local_constructor,global_integrator")
@@ -152,7 +165,7 @@ def main(args):
         model,
         args.peft_model,
         device_map="auto",
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
     )
     model = model.merge_and_unload()
 
@@ -160,7 +173,7 @@ def main(args):
     state_dict = model.state_dict()
     final_hici_keys = [
         k for k in state_dict.keys()
-        if "memory" in k.lower() or "global" in k.lower() or "hierarchical" in k.lower()
+        if "local_constructor" in k or "global_integrator" in k
     ]
     print(f"\nFinal model has {len(final_hici_keys)} HiCI params")
 

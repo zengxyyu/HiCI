@@ -25,18 +25,17 @@ NUM_EPOCHS=15
 MAX_STEPS=3000  # -1 表示根据 epochs 自动计算；也可设置固定值如 1000
 low_rank_training=True  # 是否使用低秩训练 LongLoRA
 
-# Memory 模块配置
-use_local_constructor=True  # 是否使用本地摘要记忆机制
-use_global_integrator=True  # 是否使用高层压缩HierarchicalMemory
-num_chunks=4  # chunk数量（仅在使用高层记忆时有效）
+# HiCI module configuration
+use_local_constructor=True
+use_global_integrator=True
 NUM_LOCAL_SLOTS=8  # Local Representation Slots
 global_slots=4  # Global Representation Slots
 num_heads=8  # number of attention heads
-use_bottleneck=True  # whether to use bottleneck in hierarchical memory aggregator
+use_bottleneck=True
 bottleneck_dim=512  # bottleneck dimension
 shared_compress_dim=128  # 共享压缩层维度（7B用128, 13B用160）
 
-# Memory 学习率和梯度裁剪
+# HiCI learning rate and gradient clipping
 hici_lr=2e-4
 hici_grad_clip=0.3
 
@@ -52,7 +51,7 @@ use_hierarchical_forward=True
 deepspeed_config="ds_configs/stage2.json"  # Stage 2: 24GB VRAM; Stage 3: 16GB VRAM
 
 echo "========================================================================"
-echo "🔥 Supervised Fine-Tuning (SFT) for Memory-Augmented LongLoRA"
+echo "🔥 Supervised Fine-Tuning (SFT) with HiCI"
 echo "========================================================================"
 echo ""
 echo "📦 基础配置:"
@@ -69,18 +68,17 @@ echo "  - ⚙️ 可训练参数: $TRAINABLE_PARAMS"
 echo "  - 💾 DeepSpeed配置: $deepspeed_config"
 echo "  - 🎯 使用低秩训练 LongLoRA: $low_rank_training"
 echo ""
-echo "🧠 Memory 模块配置:"
-echo "  - 📝 使用局部摘要记忆: $use_local_constructor"
-echo "  - 🔁 使用高层全局记忆: $use_global_integrator"
+echo "🧠 HiCI module configuration:"
+echo "  - 📝 LocalConstructor: $use_local_constructor"
+echo "  - 🔁 GlobalIntegrator: $use_global_integrator"
 echo "  - 🌐 Global Representation Slots: $global_slots"
 echo "  - 🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-echo "  - 🔢 Chunk分组数: $num_chunks"
-echo "  - 💡 记忆学习率: $hici_lr"
-echo "  - 🤖 记忆梯度剪裁: $hici_grad_clip"
+echo "  - 💡 HiCI learning rate: $hici_lr"
+echo "  - 🤖 HiCI gradient clip: $hici_grad_clip"
 echo "  - 🎯 使用 Bottleneck: $use_bottleneck"
 echo "  - 📊 Bottleneck Dimension: $bottleneck_dim"
 echo "  - 🧩 Shared Compress Dim: $shared_compress_dim"
-echo "  - 🧠 记忆kv初始化: llama_init=$use_llama_init"
+echo "  - 🧠 Init from LLaMA weights: $use_llama_init"
 echo ""
 echo "⚙️ 前馈函数配置:"
 echo "  - 🧠 LocalConstructorFlash (use_local_constructor_flash): $use_local_constructor_flash"
@@ -119,7 +117,6 @@ torchrun --nproc_per_node $nproc_per_node \
       --max_steps $MAX_STEPS \
       --num_local_slots $NUM_LOCAL_SLOTS \
       --global_slots $global_slots \
-      --num_chunks $num_chunks \
       --use_local_constructor $use_local_constructor \
       --use_global_integrator $use_global_integrator \
       --num_heads $num_heads \

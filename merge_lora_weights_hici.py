@@ -1,7 +1,7 @@
-# Merge LoRA weights with HiCI memory modules
+# Merge LoRA weights with HiCI modules
 #
 # Key difference from original merge script:
-# 1. Register HiCI memory modules BEFORE loading trainable_params.bin
+# 1. Register HiCI modules BEFORE loading trainable_params.bin
 # 2. This ensures local_constructor.* parameters are properly loaded
 
 import os
@@ -23,7 +23,7 @@ DEFAULT_UNK_TOKEN = "<unk>"
 
 def parse_config():
     parser = argparse.ArgumentParser(
-        description="Merge LoRA weights with HiCI memory modules"
+        description="Merge LoRA weights with HiCI modules"
     )
     parser.add_argument(
         "--base_model", type=str, required=True, help="Path to base LLaMA model"
@@ -37,10 +37,10 @@ def parse_config():
     )
     parser.add_argument("--cache_dir", type=str, default=None, help="Cache directory")
 
-    # HiCI memory module parameters (should match training)
+    # HiCI module parameters (should match training)
     # These can be inferred by inspecting trainable_params.bin
     parser.add_argument(
-        "--num_local_slots", type=int, default=8, help="Number of memory slots"
+        "--num_local_slots", type=int, default=8, help="Number of local representation slots"
     )
     parser.add_argument(
         "--global_slots",
@@ -154,8 +154,8 @@ def main(args):
         model=model,
     )
 
-    # Step 4: Register HiCI memory modules (CRITICAL!)
-    print("\n[4/6] Registering HiCI memory modules...")
+    # Step 4: Register HiCI modules (CRITICAL!)
+    print("\n[4/6] Registering HiCI modules...")
     print(f"  num_local_slots: {args.num_local_slots}")
     print(f"  global_slots: {args.global_slots}")
     print(f"  num_heads: {args.num_heads}")
@@ -186,23 +186,23 @@ def main(args):
         hici_keys = [
             k
             for k in trainable_params.keys()
-            if "memory" in k.lower() or "global" in k.lower()
+            if "local_constructor" in k or "global_integrator" in k
         ]
         print(f"  Found {len(trainable_params)} parameters in trainable_params.bin")
-        print(f"  Including {len(hici_keys)} HiCI memory parameters")
+        print(f"  Including {len(hici_keys)} HiCI parameters")
 
         # Load with strict=False but check what was loaded
         missing, unexpected = model.load_state_dict(trainable_params, strict=False)
 
         # Verify HiCI parameters were loaded
         loaded_hici = len(hici_keys) - len(
-            [k for k in missing if "memory" in k.lower() or "global" in k.lower()]
+            [k for k in missing if "local_constructor" in k or "global_integrator" in k]
         )
         print(f"  Successfully loaded {loaded_hici} HiCI parameters")
 
         if missing:
             hici_missing = [
-                k for k in missing if "memory" in k.lower() or "global" in k.lower()
+                k for k in missing if "local_constructor" in k or "global_integrator" in k
             ]
             if hici_missing:
                 print(f"  ⚠️ Warning: {len(hici_missing)} HiCI parameters not loaded!")
@@ -224,7 +224,7 @@ def main(args):
     # Verify final model has HiCI modules
     state_dict = model.state_dict()
     final_hici_keys = [
-        k for k in state_dict.keys() if "memory" in k.lower() or "global" in k.lower()
+        k for k in state_dict.keys() if "local_constructor" in k or "global_integrator" in k
     ]
     print(f"\n✅ Final model has {len(final_hici_keys)} HiCI parameters")
 

@@ -1,0 +1,236 @@
+================================
+Qwen3-8B HiCI Training
+================================
+Model: ./models/Qwen3-8B
+Output: ./checkpoints/Qwen3-8b-hici-64k-G8-stage3
+GPUs: 2
+Max length: 49152
+Trainable params: embed,norm,local_constructor,global_integrator
+HiCI LR: 2e-4
+DeepSpeed: ds_configs/stage2.json
+HiCI grad clip: 0.3
+LoRA: True
+
+--- HiCI Settings ---
+use local constructor: True
+use global integrator: True
+Global Representation Slots: 4
+Local Representation Slots: 8
+Num heads: 8
+Bottleneck: True (dim=512)
+Flash plus: False
+Attn init: False
+================================
+
+Port 38493 not in use
+Warning: The cache directory for DeepSpeed Triton autotune, /home/561/yl5488/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.
+Warning: The cache directory for DeepSpeed Triton autotune, /home/561/yl5488/.triton/autotune, appears to be on an NFS system. While this is generally acceptable, if you experience slowdowns or hanging when DeepSpeed exits, it is recommended to set the TRITON_CACHE_DIR environment variable to a non-NFS path.
+/g/data/hn98/Yang/xiangyu/HiCI/qwen3_attn_hici.py:1719: UserWarning: Flash attention is only supported on A100 or H100 GPU during training due to head dim > 64 backward.
+  warnings.warn(
+   🧪 Using forward_flashattn_hierarchical (Qwen3, training mode)
+
+🔧 RoPE scaling: 40960 -> 49152 (factor=1.2)
+Loading checkpoint shards:   0%|          | 0/5 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/5 [00:00<?, ?it/s]Loading checkpoint shards:  40%|████      | 2/5 [00:00<00:00, 19.79it/s]Loading checkpoint shards:  40%|████      | 2/5 [00:00<00:00, 18.28it/s]Loading checkpoint shards:  80%|████████  | 4/5 [00:00<00:00,  4.79it/s]Loading checkpoint shards:  80%|████████  | 4/5 [00:00<00:00,  4.89it/s]Loading checkpoint shards: 100%|██████████| 5/5 [00:00<00:00,  6.71it/s]
+Loading checkpoint shards: 100%|██████████| 5/5 [00:00<00:00,  6.61it/s]
+
+================================================================================
+🔧 Registering (Qwen3): LocalConstructor + Hierarchical Aggregator
+   Model dtype: torch.bfloat16
+   Hidden size: 4096
+   Num layers: 36
+⚠️  LocalConstructorMulti Fallback: Initialized memory_slots with std=0.015625
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+   ✅ GlobalIntegratorShared initialized (共享压缩层优化版)
+       - Design: Shared Compressor + Statistical Expansion + Lightweight MHA
+       - Global slots: 4
+       - Shared compress dim: 128
+       - Final compress dim: 512
+       - Num heads: 8
+       - Output scale (init): 0.1
+       - Stat compression params: 591,104 (0.59M)
+       - Total params/layer: 3,738,881 (3.7M)
+       - 🎯 Saved 73% compared to original
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+✅ LocalConstructorMulti: bottleneck_dim: 512, num_heads: 8
+
+================================================================================
+✅ HiCI Module Registration Complete (Qwen3)
+================================================================================
+Model: 8,626,317,348 params (8.63B)
+Layers: 36
+
+Registered Modules:
+  ✓ LocalConstructor (303,169,536 params)
+  ✓ GlobalIntegrator (134,599,716 params)
+
+Total HiCI Params: 437,769,252 (5.07%)
+================================================================================
+
+/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
+  table = cls._concat_blocks(blocks, axis=0)
+======================================================================
+Processing dataset with smart grouping
+======================================================================
+  Final samples: 32,271
+======================================================================
+/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/datasets/table.py:1421: FutureWarning: promote has been superseded by promote_options='default'.
+  table = cls._concat_blocks(blocks, axis=0)
+
+======================================================================
+Trainable Parameters Summary (Qwen3 HiCI)
+======================================================================
+  Embeddings          :     621,236,224 params (57.87%)
+  HiCI Modules        :     437,769,252 params (40.78%)
+  LayerNorm           :         308,224 params ( 0.03%)
+  LoRA Adapters       :      14,155,776 params ( 1.32%)
+    └─ LocalConstructor :     308,477,952 params
+    └─ GlobalIntegrator :     135,779,364 params
+  ────────────────────   ───────────────   ───────
+  Total Trainable     :   1,073,469,476 params (12.42% of total)
+  Total Params        :   8,640,473,124 params
+======================================================================
+
+✅ Training from scratch: ./checkpoints/Qwen3-8b-hici-64k-G8-stage3
+Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+No label_names provided for model class `PeftModelForCausalLM`. Since `PeftModel` hides base models input arguments, if label_names is not given, label_names can't be set automatically within `Trainer`. Note that empty label_names list will be used instead.
+
+======================================================================
+Creating Optimizer with Layered Learning Rates
+======================================================================
+
+  📊 HiCI Module Parameters Breakdown:
+  --------------------------------------------------------------------
+    🧠 LocalConstructor: 308,477,952 (28.74%)
+    🏗️  GlobalIntegrator: 135,779,364 (12.65%)
+  --------------------------------------------------------------------
+    📦 Total HiCI: 444,257,316 LR=2.00e-04
+    📚 Other: 629,212,160 LR=2.00e-05
+    ⚡ LR Ratio: 10.0x
+======================================================================
+
+No label_names provided for model class `PeftModelForCausalLM`. Since `PeftModel` hides base models input arguments, if label_names is not given, label_names can't be set automatically within `Trainer`. Note that empty label_names list will be used instead.
+  0%|          | 0/1000 [00:00<?, ?it/s]
+================================================================================
+Hierarchical HiCI - Qwen3 (Optimized: Q=[chunk], K/V=[hici_prefix,chunk])
+================================================================================
+  use_higher_global : True
+  use_local_constructor  : True
+  Mode 3: Q=[chunk], K/V=[higher_global, local_i, chunk]
+  🔒 CAUSAL_CONTEXT_MODE: causal_gi
+     segment_i uses G_i=Agg(L_1..L_i) + L_i
+================================================================================
+
+[forward_flashattn_hierarchical] Fixed ratio grouping: 4 groups, segment_size=12288 tokens (ratio=0.25)
+/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
+  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
+/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/utils/checkpoint.py:295: FutureWarning: `torch.cpu.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cpu', args...)` instead.
+  with torch.enable_grad(), device_autocast_ctx, torch.cpu.amp.autocast(**ctx.cpu_autocast_kwargs):  # type: ignore[attr-defined]
+
+  🧠 HiCI gradient clip: 0.3
+  0%|          | 1/1000 [05:27<90:44:38, 327.01s/it]                                                    {'loss': 2.3542, 'grad_norm': 1.4379690885543823, 'learning_rate': 0.0, 'epoch': 0.0}
+  0%|          | 1/1000 [05:27<90:44:38, 327.01s/it][rank0]: Traceback (most recent call last):
+[rank0]:   File "/g/data/hn98/Yang/xiangyu/HiCI/fine-tune_hici_qwen3.py", line 650, in <module>
+[rank0]:     train()
+[rank0]:   File "/g/data/hn98/Yang/xiangyu/HiCI/fine-tune_hici_qwen3.py", line 644, in train
+[rank0]:     trainer.train()
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/transformers/trainer.py", line 2245, in train
+[rank0]:     return inner_training_loop(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/transformers/trainer.py", line 2560, in _inner_training_loop
+[rank0]:     tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/g/data/hn98/Yang/xiangyu/HiCI/fine-tune_hici_qwen3.py", line 127, in training_step
+[rank0]:     loss = super().training_step(model, inputs, num_items_in_batch)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/transformers/trainer.py", line 3782, in training_step
+[rank0]:     self.accelerator.backward(loss, **kwargs)
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/accelerate/accelerator.py", line 2188, in backward
+[rank0]:     self.deepspeed_engine_wrapped.backward(loss, **kwargs)
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/accelerate/utils/deepspeed.py", line 166, in backward
+[rank0]:     self.engine.backward(loss, **kwargs)
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/deepspeed/utils/nvtx.py", line 20, in wrapped_fn
+[rank0]:     ret_val = func(*args, **kwargs)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/deepspeed/runtime/engine.py", line 2625, in backward
+[rank0]:     loss.backward(**backward_kwargs)
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/_tensor.py", line 521, in backward
+[rank0]:     torch.autograd.backward(
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/autograd/__init__.py", line 289, in backward
+[rank0]:     _engine_run_backward(
+[rank0]:   File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/autograd/graph.py", line 768, in _engine_run_backward
+[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 27.77 GiB. GPU 0 has a total capacity of 140.06 GiB of which 20.67 GiB is free. Including non-PyTorch memory, this process has 119.38 GiB memory in use. Of the allocated memory 92.38 GiB is allocated by PyTorch, and 25.66 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+  0%|          | 1/1000 [05:31<91:57:42, 331.39s/it]
+W0414 22:38:23.250000 139688303191680 torch/distributed/elastic/multiprocessing/api.py:858] Sending process 225481 closing signal SIGTERM
+E0414 22:38:23.731000 139688303191680 torch/distributed/elastic/multiprocessing/api.py:833] failed (exitcode: 1) local_rank: 0 (pid: 225480) of binary: /g/data/hn98/Yang/miniconda3/envs/hici-qwen3/bin/python3.11
+Traceback (most recent call last):
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/bin/torchrun", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 348, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/distributed/run.py", line 901, in main
+    run(args)
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/distributed/run.py", line 892, in run
+    elastic_launch(
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 133, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/g/data/hn98/Yang/miniconda3/envs/hici-qwen3/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 264, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+fine-tune_hici_qwen3.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-04-14_22:38:23
+  host      : gadi-gpu-h200-0024.gadi.nci.org.au
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 225480)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+
+================================
+Training completed!
+Checkpoints saved to: ./checkpoints/Qwen3-8b-hici-64k-G8-stage3
+

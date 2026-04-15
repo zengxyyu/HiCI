@@ -1,33 +1,34 @@
 #!/bin/bash
-# HiCI Distributed Evaluation — Multi-Node (2 nodes x 4 H200 = 8 GPUs)
+# HiCI Qwen3 Distributed Evaluation — Multi-Node (2 nodes x 4 H200 = 8 GPUs)
 #
 # Usage:
-#   Node 0 (master): bash eval_distributed_hici_multinode.sh 0 2>&1 | tee eval_llama2-7b-8k_Re/PG19_TEST_EVAL_Llama-2-Llama-2-7b-8k-hici-causal_gi-G8_2000_4k_astrain_S1024.txt
-#   Node 1 (worker): bash eval_distributed_hici_multinode.sh 1
+#   Node 0 (master): bash eval_distributed_hici_qwen3_multinode.sh 0 2>&1 | tee eval_qwen3_Re/PG19_TEST_EVAL_Qwen3-8b_2k.txt
+#   Node 1 (worker): bash eval_distributed_hici_qwen3_multinode.sh 1
 #
 # Both must be started within NCCL timeout (default 120s) of each other.
 
-NODE_RANK=${1:?'Usage: bash eval_distributed_hici_multinode.sh <node_rank> (0=master, 1=worker)'}
+NODE_RANK=${1:?'Usage: bash eval_distributed_hici_qwen3_multinode.sh <node_rank> (0=master, 1=worker)'}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 cd "$SCRIPT_DIR"
 export DS_SKIP_CUDA_CHECK=1
 
-# Activate environment: prefer PBS_JOBFS extracted env, fallback to conda/venv
-if [ -d "${PBS_JOBFS}/hici/bin" ]; then
-    export PATH="${PBS_JOBFS}/hici/bin:$PATH"
-    export CONDA_PREFIX="${PBS_JOBFS}/hici"
-else
-    source ~/venv/zxy/bin/activate 2>/dev/null || conda activate hici 2>/dev/null
-fi
+module load gcc/12.2.0
+module unload cuda
+module load cuda/12.5.1
+
+source /g/data/hn98/Yang/miniconda3/etc/profile.d/conda.sh && conda activate hici-qwen3
+
+CONDA_ENV="/g/data/hn98/Yang/miniconda3/envs/hici-qwen3"
+export LD_LIBRARY_PATH="${CONDA_ENV}/lib/python3.11/site-packages/nvidia/nvjitlink/lib:${CONDA_ENV}/lib/python3.11/site-packages/nvidia/cusparse/lib:${LD_LIBRARY_PATH}"
 
 # ============================================================
 # Multi-node config
 # ============================================================
-MASTER_ADDR="10.6.106.17"   # Update to master node IP (e.g., gadi-gpu-h200-XXXX)
+MASTER_ADDR="gadi-gpu-h200-0024.gadi.nci.org.au"
 MASTER_PORT=38493
 NNODES=2
-NPROC_PER_NODE=4
+NPROC_PER_NODE=2
 
 # NCCL
 export NCCL_TIMEOUT=7200
@@ -36,20 +37,19 @@ export NCCL_BLOCKING_WAIT=1
 # ============================================================
 # Model & Data
 # ============================================================
-BASE_MODEL="./models/Llama-2-7b-hf"
-# BASE_MODEL="./models/Llama-2-13b-hf"
-# BASE_MODEL="./models/Meta-Llama-3-8B"
-CHECKPOINT_PATH="./checkpoints/Llama-2-7b-8k-hici-causal_gi-G8/checkpoint-2000"
+# BASE_MODEL="./models/Qwen3-8B"
+BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
+CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k"
 
-DATA_PATH="./data/pg19/test.bin"
-SEQ_LEN=8192            # 2048 4096 8192 16384 32768 65536 100000
-CONTEXT_SIZE=8192
+DATA_PATH="./data/pg19_qwen3/test.bin"
+SEQ_LEN=8192  # 2048 4096 8192 16384 32768 49152
+CONTEXT_SIZE=40960
 
 # ============================================================
 # Evaluation mode
 # ============================================================
 # 评估方式: None (chunked, same as training) or "full" (full attention, no HiCI)
-eval_mode=None
+eval_mode=full
 
 # ============================================================
 # HiCI config (must match training!)
@@ -94,22 +94,19 @@ echo "📝 forward_flashattn_hierarchical (use_hierarchical_forward): $use_hiera
 echo "================================"
 
 # Clean up stale processes
-pkill -9 -f "eval_distributed_hici.py" 2>/dev/null
+pkill -9 -f "eval_distributed_hici_qwen3.py" 2>/dev/null
 fuser -k $MASTER_PORT/tcp 2>/dev/null
 sleep 2
 
-# ============================================================
-# Run
-# ============================================================
+# --peft_model $CHECKPOINT_PATH \
 torchrun \
     --nnodes=$NNODES \
     --node_rank=$NODE_RANK \
     --nproc_per_node=$NPROC_PER_NODE \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    eval_distributed_hici.py \
+    eval_distributed_hici_qwen3.py \
     --base_model $BASE_MODEL \
-    --peft_model $CHECKPOINT_PATH \
     --data_path $DATA_PATH \
     --seq_len $SEQ_LEN \
     --context_size $CONTEXT_SIZE \

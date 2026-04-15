@@ -9,19 +9,18 @@ MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Meta-Llama-3-8B"
 OUTPUT_DIR="./checkpoints/Llama-3-8B-hici-32k-test"
 MAX_LENGTH=32768  # 8192 32768 16384 65536 100000 131072 262144
 WARMUP_STEPS=20
-hici_lr=2e-4  # 全局记忆的学习率
+hici_lr=2e-4
 nproc_per_node=4 
 hici_grad_clip=0.3
 low_rank_training=True  # 是否使用低秩训练 LongLoRA
-#控制记忆的地方================
-use_local_constructor=True  # 是否使用本地摘要记忆机制 True
-use_global_integrator=True  # 是否使用高层压缩HierarchicalMemoryAggregatorSingleHead
-num_chunks=8  # chunk数量（仅在使用高层记忆时有效）
-NUM_LOCAL_SLOTS=8  # loca memory slots
+# HiCI configuration ================
+use_local_constructor=True
+use_global_integrator=True
+NUM_LOCAL_SLOTS=8
 global_slots=4  # Global Representation Slots
 num_heads=8  # number of attention heads
-use_bottleneck=True  # whether to use bottleneck in hierarchical memory aggregator
-bottleneck_dim=512  #512  640# bottleneck dimension for hierarchical memory aggregator
+use_bottleneck=True
+bottleneck_dim=512
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
 # TRAINABLE_PARAMS="embed,norm,local_constructor"
 # TRAINABLE_PARAMS="embed,norm"
@@ -41,26 +40,25 @@ echo "📦 基础模型: $MODEL_PATH"
 echo "📁 模型输出目录: $OUTPUT_DIR"
 echo "🤖 GPU数目: $nproc_per_node"
 echo "📊 最大长度: $MAX_LENGTH"
-echo "🔢 Chunk分组数: $num_chunks"
 echo "⚙️ 可训练参数: $TRAINABLE_PARAMS"
 echo "🔥 预热步数: $WARMUP_STEPS"
-echo "💡 记忆学习率: $hici_lr"
+echo "💡 HiCI learning rate: $hici_lr"
 echo "💡 deepspeed配置: $deepspeed_config"
-echo "🤖 记忆模块梯度剪裁: $hici_grad_clip"
+echo "🤖 HiCI gradient clip: $hici_grad_clip"
 echo "🎯 使用低秩训练 LongLoRA: $low_rank_training"
 
-echo "--------------记忆属性设置-----------------"
-echo "📝 使用局部摘要记忆机制: $use_local_constructor"
-echo "🔁 使用高层全局记忆机制: $use_global_integrator"
+echo "--------------HiCI configuration-----------------"
+echo "📝 LocalConstructor: $use_local_constructor"
+echo "🔁 GlobalIntegrator: $use_global_integrator"
 echo "🌐 Global Representation Slots: $global_slots"
 echo "🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-echo "🧠 记忆的kv是否从Llama参数初始化: $use_llama_init"
+echo "🧠 Init from LLaMA weights: $use_llama_init"
 echo "🎯 使用 Bottleneck: $use_bottleneck"
-echo "🔢 Memory Attention Heads: $num_heads"  #（目前没有使用这个参数）
+echo "🔢 HiCI Attention Heads: $num_heads"
 echo "🧩 Bottleneck Dimension: $bottleneck_dim"
 echo "🧩 Shared Compress Dim: $shared_compress_dim"
-echo "--------------记忆类和前馈函数设置-----------------"
-echo "🧠 调用记忆类: LocalConstructorFlash kv独立 + flash attn: $use_local_constructor_flash"
+echo "--------------Module and forward function config-----------------"
+echo "🧠 LocalConstructorFlash: $use_local_constructor_flash"
 echo "📝 调用函数 forward_flashattn_hierarchical 局部+全局: $use_hierarchical_forward"
 echo "================================"
 echo ""
@@ -97,7 +95,6 @@ torchrun --nproc_per_node $nproc_per_node \
       --deepspeed $deepspeed_config \
       --tf32 True \
       --max_steps 1000\
-      --num_chunks $num_chunks \
       --num_local_slots $NUM_LOCAL_SLOTS \
       --global_slots $global_slots \
       --use_local_constructor $use_local_constructor \

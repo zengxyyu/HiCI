@@ -26,14 +26,14 @@ nproc_per_node=4
 DATA_PATH="./data/pg19/test.bin"
 SEQ_LEN=2048  # 2048 4096 8192 16384 32768 65536 100000
 CONTEXT_SIZE=8192
-use_local_constructor=True  # 是否使用本地摘要记忆机制 False
+use_local_constructor=True
 use_global_integrator=True  # 是否使用高层压缩HierarchicalMemoryAggregatorSingleHead
-NUM_LOCAL_SLOTS=8  # loca memory slots
+NUM_LOCAL_SLOTS=8
 global_slots=4  # Global Representation Slots
 num_heads=8  # number of attention heads
-use_bottleneck=True  # whether to use bottleneck in hierarchical memory aggregator
-bottleneck_dim=512  # bottleneck dimension for hierarchical memory aggregator
-eval_mode=None   # 评估方式: None (chunked, same as training) or "full" (full attention, no memory)
+use_bottleneck=True
+bottleneck_dim=512
+eval_mode=None   # None (chunked, same as training) or "full" (full attention, no HiCI)
 
 # LocalConstructor 类型选择
 use_local_constructor_flash=False
@@ -49,14 +49,13 @@ echo "🗃️ 评估数据集: $DATA_PATH"
 echo "📊 最大长度: $CONTEXT_SIZE"
 echo "🔢 评估的序列长度: $SEQ_LEN"
 echo "🎯 评估方式: $eval_mode"
-echo "--------------记忆属性设置-----------------"
-echo "📝 使用局部摘要记忆机制: $use_local_constructor"
-echo "🔁 使用高层全局记忆机制: $use_global_integrator"
+echo "--------------HiCI configuration-----------------"
+echo "📝 LocalConstructor: $use_local_constructor"
+echo "🔁 GlobalIntegrator: $use_global_integrator"
 echo "🌐 Global Representation Slots: $global_slots"
 echo "🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-# echo "🧠 记忆的kv是否从Llama参数初始化: $use_llama_init"
 echo "🎯 使用 Bottleneck: $use_bottleneck"
-echo "🔢 Memory Attention Heads: $num_heads"  #（目前没有使用这个参数）
+echo "🔢 HiCI Attention Heads: $num_heads"
 echo "🧩 Bottleneck Dimension: $bottleneck_dim"
 echo "--------------前馈函数设置-----------------"
 echo "🧠 LocalConstructorFlash (use_local_constructor_flash): $use_local_constructor_flash"

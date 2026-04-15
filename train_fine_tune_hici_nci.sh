@@ -33,7 +33,6 @@ hici_grad_clip=0.3
 low_rank_training=True
 use_local_constructor=True
 use_global_integrator=True
-num_chunks=8                # 8段 x 1024 tokens
 NUM_LOCAL_SLOTS=8
 global_slots=4
 num_heads=8
@@ -55,7 +54,6 @@ echo "📦 基础模型: $MODEL_PATH"
 echo "📁 模型输出目录: $OUTPUT_DIR"
 echo "🤖 GPU数目: $nproc_per_node"
 echo "📊 最大长度: $MAX_LENGTH"
-echo "🔢 Chunk分组数: $num_chunks"
 echo "⚙️ 可训练参数: $TRAINABLE_PARAMS"
 echo "🔥 预热步数: $WARMUP_STEPS"
 echo "💡 记忆学习率: $hici_lr"
@@ -109,7 +107,6 @@ torchrun --nproc_per_node $nproc_per_node \
       --deepspeed $deepspeed_config \
       --tf32 True \
       --max_steps 2000 \
-      --num_chunks $num_chunks \
       --num_local_slots $NUM_LOCAL_SLOTS \
       --global_slots $global_slots \
       --recurrence_size $recurrence_size \

@@ -1,34 +1,33 @@
 # bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Train_out_qwen3/Qwen3-84-bothhigher_multi_clip_2e_clean_share.txt
-# bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Training_out_fuxian/Qwen3-8b-hici-48k-test_none.txt
+# bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Train_out_qwen3/Qwen3-8b-hici-64k-G8-stage3_causal_gi.txt
+
 pkill -9 -f "fine-tune_hici_qwen3.py"
 
 # Qwen3-8B HiCI Training on Gadi (4x H200)
-MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Qwen3-8B"
-OUTPUT_DIR="./checkpoints/Qwen3-8b-hici-48k-test"
+MODEL_PATH="./models/Qwen3-8B"
+OUTPUT_DIR="./checkpoints/Qwen3-8b-hici-64k-G8-stage3"
 MAX_LENGTH=49152  # 8192 32768 49152 51200 65536 131072
 WARMUP_STEPS=20
 hici_lr=2e-4
-nproc_per_node=4
+nproc_per_node=2
 hici_grad_clip=0.3
 low_rank_training=True
 
-# Memory configuration
+# HiCI configuration
 use_local_constructor=True
 use_global_integrator=True
-num_chunks=8
 NUM_LOCAL_SLOTS=8
-global_slots=4        # HiCI Global Representation Slots
-num_heads=8            # HiCI memory module attention heads
+global_slots=4        # HiCI global context slots
+num_heads=8            # HiCI HiCI module attention heads
 use_bottleneck=True
 bottleneck_dim=512
-shared_compress_dim=128  # 共享压缩层维度（7B/8B用128, 13B用160）
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
 
-# Memory module and forward function
-use_local_constructor_flash=False
+# HiCI module and forward function
+
 use_hierarchical_forward=True
-use_flash_plus=False
-use_attn_init=False    # Whether to init memory Q/K/V from pretrained weights
+use_local_constructor_flash=False
+use_attn_init=False    # Whether to init HiCI Q/K/V from pretrained weights
 
 deepspeed_config="ds_configs/stage2.json"
 
@@ -39,22 +38,20 @@ echo "Model: $MODEL_PATH"
 echo "Output: $OUTPUT_DIR"
 echo "GPUs: $nproc_per_node"
 echo "Max length: $MAX_LENGTH"
-echo "Chunks: $num_chunks"
 echo "Trainable params: $TRAINABLE_PARAMS"
-echo "Memory LR: $hici_lr"
+echo "HiCI LR: $hici_lr"
 echo "DeepSpeed: $deepspeed_config"
-echo "Memory grad clip: $hici_grad_clip"
+echo "HiCI grad clip: $hici_grad_clip"
 echo "LoRA: $low_rank_training"
 echo ""
-echo "--- Memory Settings ---"
-echo "Local summary: $use_local_constructor"
-echo "Hierarchical memory: $use_global_integrator"
-echo "Global slots: $global_slots"
-echo "Local slots: $NUM_LOCAL_SLOTS"
+echo "--- HiCI Settings ---"
+echo "use local constructor: $use_local_constructor"
+echo "use global integrator: $use_global_integrator"
+echo "Global Representation Slots: $global_slots"
+echo "Local Representation Slots: $NUM_LOCAL_SLOTS"
 echo "Num heads: $num_heads"
 echo "Bottleneck: $use_bottleneck (dim=$bottleneck_dim)"
-echo "Shared compress dim: $shared_compress_dim"
-echo "Flash plus: $use_flash_plus"
+echo "Flash plus: $use_local_constructor_flash"
 echo "Attn init: $use_attn_init"
 echo "================================"
 echo ""
@@ -77,7 +74,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_train_epochs 1  \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 16 \
+      --gradient_accumulation_steps 32 \
       --eval_strategy "no" \
       --save_strategy "steps" \
       --save_steps 100 \
@@ -90,7 +87,6 @@ torchrun --nproc_per_node $nproc_per_node \
       --deepspeed $deepspeed_config \
       --tf32 True \
       --max_steps 1000 \
-      --num_chunks $num_chunks \
       --num_local_slots $NUM_LOCAL_SLOTS \
       --global_slots $global_slots \
       --use_local_constructor $use_local_constructor \
@@ -100,12 +96,10 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_heads $num_heads \
       --use_bottleneck $use_bottleneck \
       --bottleneck_dim $bottleneck_dim \
-      --shared_compress_dim $shared_compress_dim \
-      --use_flash_plus $use_flash_plus \
+      --use_local_constructor_flash $use_local_constructor_flash \
       --use_attn_init $use_attn_init \
       --use_hierarchical_forward $use_hierarchical_forward \
-      --hici_grad_clip $hici_grad_clip \
-      --use_local_constructor_flash $use_local_constructor_flash
+      --hici_grad_clip $hici_grad_clip
 
 echo ""
 echo "================================"

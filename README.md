@@ -231,6 +231,37 @@ See the [paper](https://arxiv.org/abs/2603.20843) for full results including Pro
 
 ## Training
 
+### Download Base Models
+
+> Login to Hugging Face first. For LLaMA models, also accept the Meta license on the model page before downloading.
+> ```bash
+> huggingface-cli login
+> ```
+
+```bash
+# LLaMA-2-7B
+huggingface-cli download meta-llama/Llama-2-7b-hf \
+    --local-dir ./models/Llama-2-7b-hf \
+    --local-dir-use-symlinks False \
+    --max-workers 1
+
+# LLaMA-2-13B
+huggingface-cli download meta-llama/Llama-2-13b-hf \
+    --local-dir ./models/Llama-2-13b-hf \
+    --local-dir-use-symlinks False
+
+# LLaMA-3-8B
+huggingface-cli download meta-llama/Meta-Llama-3-8B \
+    --local-dir ./models/Meta-Llama-3-8B \
+    --local-dir-use-symlinks False
+
+# Qwen3-8B
+huggingface-cli download Qwen/Qwen3-8B \
+    --local-dir ./models/Qwen3-8B \
+    --local-dir-use-symlinks False \
+    --max-workers 1
+```
+
 ### Script–model pairing
 
 | Use case                         | Shell script                    | Python script             | Attention module         |
@@ -324,7 +355,6 @@ torchrun --nproc_per_node 8 \
     --use_local_constructor True \
     --use_global_integrator True \
     --use_hierarchical_forward True \
-    --use_flash_plus False \
     --use_attn_init False \
     --use_local_constructor_flash False \
     --trainable_params "embed,norm,local_constructor,global_integrator" \

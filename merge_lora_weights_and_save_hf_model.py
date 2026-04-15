@@ -12,126 +12,117 @@
 # limitations under the License.
 
 import os
+import math
 import torch
 import argparse
 import transformers
 from peft import PeftModel
-from typing import Dict
 
-IGNORE_INDEX = -100
-DEFAULT_PAD_TOKEN = "[PAD]"
-DEFAULT_EOS_TOKEN = "</s>"
-DEFAULT_BOS_TOKEN = "<s>"
-DEFAULT_UNK_TOKEN = "<unk>"
 
 def parse_config():
-    parser = argparse.ArgumentParser(description="arg parser")
-    parser.add_argument(
-        "--base_model", type=str, default="/data/pretrained-models/llama-7b-hf"
+    parser = argparse.ArgumentParser(
+        description="Merge LoRA weights into the base model (LLaMA / Qwen3 / generic)"
     )
-    parser.add_argument("--peft_model", type=str, default=None, help="")
+    parser.add_argument("--base_model", type=str, required=True)
+    parser.add_argument("--peft_model", type=str, required=True)
+    parser.add_argument("--save_path", type=str, required=True)
     parser.add_argument(
-        "--context_size", type=int, default=-1, help="context size during fine-tuning"
+        "--context_size", type=int, default=-1,
+        help="Training context size. Used to set RoPE scaling when > max_position_embeddings."
     )
-    parser.add_argument("--save_path", type=str, default=None, help="")
-    parser.add_argument("--cache_dir", type=str, default=None, help="./cache_dir")
+    parser.add_argument(
+        "--torch_dtype", type=str, default="auto",
+        choices=["auto", "float16", "bfloat16"],
+        help="Model dtype. 'auto' reads from config (recommended). "
+             "Use 'float16' for LLaMA-2, 'bfloat16' for Qwen3/LLaMA-3.",
+    )
+    parser.add_argument("--cache_dir", type=str, default=None)
     args = parser.parse_args()
     return args
 
-def smart_tokenizer_and_embedding_resize(
-    special_tokens_dict: Dict,
-    tokenizer: transformers.PreTrainedTokenizer,
-    model: transformers.PreTrainedModel,
-):
-    """Resize tokenizer and embedding.
 
-    Note: This is the unoptimized version that may make your embedding size not be divisible by 64.
-    """
-    num_new_tokens = tokenizer.add_special_tokens(special_tokens_dict)
-    model.resize_token_embeddings(len(tokenizer))
+def resolve_dtype(args, config):
+    if args.torch_dtype == "auto":
+        # Read from model config; fall back to bfloat16
+        cfg_dtype = getattr(config, "torch_dtype", "bfloat16")
+        dtype_map = {"float16": torch.float16, "bfloat16": torch.bfloat16}
+        return dtype_map.get(str(cfg_dtype), torch.bfloat16)
+    return torch.float16 if args.torch_dtype == "float16" else torch.bfloat16
 
-    if num_new_tokens > 0:
-        input_embeddings = model.get_input_embeddings().weight.data
-        output_embeddings = model.get_output_embeddings().weight.data
-
-        input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(
-            dim=0, keepdim=True
-        )
-        output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
-            dim=0, keepdim=True
-        )
-
-        input_embeddings[-num_new_tokens:] = input_embeddings_avg
-        output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
 def main(args):
     device = "cuda:0"
     torch.cuda.set_device(device)
 
-    print("base model", args.base_model)
-    print("peft model", args.peft_model)
+    print("base model :", args.base_model)
+    print("peft model :", args.peft_model)
+    print("save path  :", args.save_path)
 
-    # Load model and tokenizer
+    # Load config (apply RoPE scaling before loading weights)
+    config = transformers.AutoConfig.from_pretrained(
+        args.base_model, cache_dir=args.cache_dir
+    )
+    if args.context_size > 0:
+        orig_ctx_len = getattr(config, "max_position_embeddings", None)
+        if orig_ctx_len and args.context_size > orig_ctx_len:
+            scaling_factor = float(math.ceil(args.context_size / orig_ctx_len))
+            config.rope_scaling = {"type": "linear", "factor": scaling_factor}
+            print(f"RoPE scaling: factor={scaling_factor} ({orig_ctx_len} → {args.context_size})")
+
+    torch_dtype = resolve_dtype(args, config)
+    print(f"dtype: {torch_dtype}")
+
+    # Load base model
     model = transformers.AutoModelForCausalLM.from_pretrained(
         args.base_model,
+        config=config,
         cache_dir=args.cache_dir,
-        torch_dtype=torch.float16,
+        torch_dtype=torch_dtype,
         device_map="auto",
     )
 
+    # Load tokenizer: prefer the checkpoint's tokenizer (may have extra special tokens
+    # added during training, e.g. [PAD] for LLaMA-2), fall back to base model.
+    tokenizer_path = args.peft_model if os.path.isfile(
+        os.path.join(args.peft_model, "tokenizer_config.json")
+    ) else args.base_model
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.base_model,
+        tokenizer_path,
         cache_dir=args.cache_dir,
-        model_max_length=args.context_size,
         padding_side="right",
-        use_fast=False,
-    )
-    special_tokens_dict = dict()
-    if tokenizer.pad_token is None:
-        special_tokens_dict["pad_token"] = DEFAULT_PAD_TOKEN
-    if tokenizer.eos_token is None:
-        special_tokens_dict["eos_token"] = DEFAULT_EOS_TOKEN
-    if tokenizer.bos_token is None:
-        special_tokens_dict["bos_token"] = DEFAULT_BOS_TOKEN
-    if tokenizer.unk_token is None:
-        special_tokens_dict["unk_token"] = DEFAULT_UNK_TOKEN
-
-    smart_tokenizer_and_embedding_resize(
-        special_tokens_dict=special_tokens_dict,
-        tokenizer=tokenizer,
-        model=model,
+        use_fast=True,
     )
 
-    # trainable_params = os.path.join(args.peft_model, "trainable_params.bin")
-    # if os.path.isfile(trainable_params):
-    #     model.load_state_dict(
-    #         torch.load(trainable_params, map_location=model.device), strict=False
-    #     )
+    # Load embed/norm weights from trainable_params.bin (strict=False so HiCI keys are ignored)
+    trainable_params_path = os.path.join(args.peft_model, "trainable_params.bin")
+    if os.path.isfile(trainable_params_path):
+        tp = torch.load(trainable_params_path, map_location="cpu", weights_only=False)
+        # Resize embeddings if the checkpoint extended the vocabulary
+        for k, v in tp.items():
+            if "embed_tokens" in k and v.shape[0] != config.vocab_size:
+                model.resize_token_embeddings(v.shape[0])
+                print(f"Resized token embeddings: {config.vocab_size} → {v.shape[0]}")
+                break
+        model.load_state_dict(tp, strict=False)
+        print(f"Loaded trainable_params.bin ({len(tp)} keys)")
+        del tp
+    else:
+        print("trainable_params.bin not found — skipping embed/norm weight loading")
 
-    # # Convert to absolute path and use local_files_only to avoid Hub validation issues
-    # peft_model_path = os.path.abspath(args.peft_model)
-    # model = PeftModel.from_pretrained(
-    #     model,
-    #     peft_model_path,
-    #     device_map="auto",
-    #     torch_dtype=torch.float16,
-    #     local_files_only=True,
-    # )
-
-    trainable_params = os.path.join(args.peft_model, "trainable_params.bin")
-    if os.path.isfile(trainable_params):
-        model.load_state_dict(
-            torch.load(trainable_params, map_location=model.device), strict=False
-        )
+    # Load LoRA and merge
     model = PeftModel.from_pretrained(
         model,
         args.peft_model,
         device_map="auto",
-        torch_dtype=torch.float16,
+        torch_dtype=torch_dtype,
     )
     model = model.merge_and_unload()
+    print("LoRA merged successfully")
+
     model.save_pretrained(args.save_path)
     tokenizer.save_pretrained(args.save_path)
+    print(f"Saved to {args.save_path}")
+
 
 if __name__ == "__main__":
     args = parse_config()
