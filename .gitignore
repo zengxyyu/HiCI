@@ -42,6 +42,8 @@ checkpoints/
 eval_output*.log
 inference_output*.log
 tensorboard.log
+eval_qwen3_Re/
+Training_out_fuxian/
 
 # 保留重要的训练和评估日志
 !training_output*.txt
