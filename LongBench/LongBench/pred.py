@@ -16,7 +16,7 @@ from llama_flash_attn_monkey_patch import replace_llama_attn_with_flash_attn
 
 import sys
 
-sys.path.insert(0, "/path/to/project")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from llama_attn_hici_sft import (
     replace_llama_attn_hici_inference,
     register_hici_to_model,
@@ -60,26 +60,7 @@ def parse_args(args=None):
         "--output_suffix",
         type=str,
         default="",
-        help="Suffix to append to output directory name (e.g., '_train_func' -> pred/model_train_func/)",
-    )
-
-    parser.add_argument(
-        "--use_training_function",
-        action="store_true",
-        default=False,
-        help="Use training function for inference (no KV cache, slow but consistent)",
-    )
-    parser.add_argument(
-        "--include_repr_in_kv_cache",
-        action="store_true",
-        default=False,
-        help="Include HiCI repr in KV cache (requires --no-use_training_function)",
-    )
-    parser.add_argument(
-        "--disable_hici_in_prefill",
-        action="store_true",
-        default=False,
-        help="Disable HiCI in prefill stage (use standard attention)",
+        help="Suffix to append to output directory name (e.g., '-ori' -> pred/model-ori/)",
     )
     return parser.parse_args(args)
 
@@ -134,9 +115,6 @@ def get_pred(
     model2path,
     out_path,
     use_hici_attn=False,
-    use_training_function=False,
-    include_repr_in_kv_cache=False,
-    disable_hici_in_prefill=False,
 ):
     device = torch.device(f"cuda:{rank}")
     model, tokenizer = load_model_and_tokenizer(
@@ -144,9 +122,6 @@ def get_pred(
         model_name,
         device,
         use_hici_attn=use_hici_attn,
-        use_training_function=use_training_function,
-        include_repr_in_kv_cache=include_repr_in_kv_cache,
-        disable_hici_in_prefill=disable_hici_in_prefill,
     )
     for json_obj in tqdm(data):
         prompt = prompt_format.format(**json_obj)
@@ -183,10 +158,7 @@ def get_pred(
             input = tokenizer(prompt, truncation=False, return_tensors="pt").to(device)
         context_length = input.input_ids.shape[-1]
 
-        if use_hici_attn and use_training_function:
-            enable_kv_cache = False
-        else:
-            enable_kv_cache = True
+        enable_kv_cache = True
 
         if (
             dataset == "samsum"
@@ -244,9 +216,6 @@ def load_model_and_tokenizer(
     model_name,
     device,
     use_hici_attn=False,
-    use_training_function=False,
-    include_repr_in_kv_cache=False,
-    disable_hici_in_prefill=False,
 ):
     if "chatglm" in model_name or "internlm" in model_name or "xgen" in model_name:
         tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
@@ -277,11 +246,7 @@ def load_model_and_tokenizer(
         if use_hici_attn:
 
             print("Using HiCI hierarchical attention")
-            replace_llama_attn_hici_inference(
-                use_training_function=use_training_function,
-                include_repr_in_kv_cache=include_repr_in_kv_cache,
-                disable_hici_in_prefill=disable_hici_in_prefill,
-            )
+            replace_llama_attn_hici_inference()
             model = LlamaForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16)
 
             register_hici_to_model(
@@ -558,9 +523,6 @@ if __name__ == "__main__":
                     model2path,
                     out_path,
                     args.use_hici_attn,
-                    args.use_training_function,
-                    args.include_repr_in_kv_cache,
-                    args.disable_hici_in_prefill,
                 ),
             )
             p.start()

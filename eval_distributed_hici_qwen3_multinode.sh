@@ -32,7 +32,8 @@ NPROC_PER_NODE=2
 
 # NCCL
 export NCCL_TIMEOUT=7200
-export NCCL_BLOCKING_WAIT=1
+export NCCL_BLOCKING_WAIT=0
+export TORCH_NCCL_BLOCKING_WAIT=0
 
 # ============================================================
 # Model & Data
@@ -42,7 +43,7 @@ BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
 CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k"
 
 DATA_PATH="./data/pg19_qwen3/test.bin"
-SEQ_LEN=8192  # 2048 4096 8192 16384 32768 49152
+SEQ_LEN=16384  # 2048 4096 8192 16384 32768 49152
 CONTEXT_SIZE=40960
 
 # ============================================================

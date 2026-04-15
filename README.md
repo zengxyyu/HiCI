@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-<img src="imgs/hici_overview.png" width="65%">
+<img src="imgs/hici_overview.png" width="80%">
 </p>
 
 <p align="center">
@@ -464,9 +464,14 @@ This produces `trainable_params.bin`, which is required by the eval and merge sc
 
 ### Merging
 
+Training produces a base model and a separate `trainable_params.bin` (LoRA + HiCI adapter weights). Merging combines them into a single self-contained HuggingFace model directory for easier distribution and loading. There are two options with different trade-offs:
+
+- **Option A (LoRA adapters + embed/norm only)**: HiCI modules are discarded; the result is a standard transformer that works with any inference tool (vLLM, `transformers`, etc.) without any custom code.
+- **Option B (LoRA adapters + embed/norm + HiCI modules)**: HiCI modules are included in the merged weights; loading still requires injecting the HiCI architecture via `replace_llama_attn()` / `register_hici_to_model()`, but the weights are fully self-contained without needing `trainable_params.bin`.
+
 There are two merging options corresponding to the two inference modes reported in the paper.
 
-**Option A — LongLoRA only (full-attention inference, no HiCI at prefill)**
+**Option A — LoRA adapters + embed/norm only (full-attention inference, no HiCI at prefill)**
 
 The merged model contains LoRA adapters + embed/norm weights from training, but excludes HiCI modules. Inference uses standard full attention.
 
@@ -478,7 +483,7 @@ python merge_lora_weights_and_save_hf_model.py \
     --save_path ./models/merged/Llama-2-7b-hici-8k-merged
 ```
 
-**Option B — LongLoRA + HiCI (if you want to use HiCI during prefill)**
+**Option B — LoRA adapters + embed/norm + HiCI modules (HiCI hierarchical attention at prefill)**
 
 The merged model contains LoRA adapters + embed/norm weights + HiCI modules. Inference uses HiCI hierarchical attention during prefill.
 
@@ -509,6 +514,50 @@ python merge_lora_weights_hici_qwen3.py \
 ---
 
 ## Evaluation
+
+Before running any evaluation, you need trained adapter weights. There are two ways to obtain them:
+
+**Option A — Download our released adapter weights from HuggingFace**
+
+```bash
+# Example: Qwen3-8b-HiCI-48k
+huggingface-cli download ZengXiangyu/Qwen3-8b-HiCI-48k \
+    --local-dir ./checkpoints/Qwen3-8b-HiCI-48k \
+    --local-dir-use-symlinks False
+```
+
+**Option B — Use your own trained adapter weights** (see [Training](#training))
+
+> For your own weights, follow the [Weight Extraction](#weight-extraction) steps first to produce `trainable_params.bin` inside the checkpoint directory. Downloaded weights already include this file.
+
+---
+
+Once you have adapter weights, choose how to use them for evaluation:
+
+**Path 1 — Evaluate directly without merging** (pass the adapter weights directory via `--peft_model`):
+
+```bash
+--base_model ./models/Llama-2-7b-hf \
+--peft_model ./checkpoints/Llama-3-8b-HiCI-32k \
+```
+
+**Path 2 — Merge first, then evaluate** (omit `--peft_model`, pass the merged model via `--base_model`):
+
+```bash
+# LoRA only (standard full attention at inference)
+python merge_lora_weights_and_save_hf_model.py \
+    --base_model ./models/Llama-2-7b-hf \
+    --peft_model ./checkpoints/Llama-3-8b-HiCI-32k \
+    --save_path ./models/merged/Llama-3-8b-HiCI-32k \
+    --context_size 32768
+
+# Then evaluate with the merged model (no --peft_model)
+--base_model ./models/merged/Llama-3-8b-HiCI-32k \
+```
+
+> See the [Merging](#merging) section for the full list of options.
+
+---
 
 ### Perplexity on PG-19 / Proof-pile
 
@@ -558,24 +607,29 @@ Multi-node (2 nodes × 4 GPUs): `bash eval_distributed_hici_multinode.sh 0` / `.
 ### Passkey Retrieval
 
 ```bash
-python passkey_retrivial_hici.py \
-    --base_model ./models/merged/Llama-3-8b-HiCI-32k \
-    --context_size 32768 --max_tokens 32768 \
-    --segment_size 1024 --num_tests 10 --interval 1000
+python passkey_retrivial.py \
+    --base_model ./models/merged/Llama-2-7b-HiCI-32k \
+    --context_size 32768 \
+    --max_tokens 57344 \
+    --interval 1024
 ```
 
-### LongBench v2
+### LongBench
+
+Two runs are needed — one baseline (no HiCI) and one HiCI — for comparison, both using `run_pred.sh`:
 
 ```bash
-# Start vLLM server
-python -m vllm.entrypoints.openai.api_server \
-    --model ./models/merged/Llama-3-8b-HiCI-32k \
-    --served-model-name Llama-3-8b-HiCI --max-model-len 32768 --port 8000
+cd LongBench/LongBench
 
-# Predict and score
-cd LongBench
-python pred.py --model Llama-3-8b-HiCI
-python result.py --model Llama-3-8b-HiCI
+# Baseline: --ori disables HiCI, uses standard full attention
+bash run_pred.sh --model <model-name> --ori --suffix "-ori"
+
+# HiCI: HiCI hierarchical attention in prefill (default mode, no KV cache injection)
+bash run_pred.sh --model <model-name> --suffix "_prefill_no_kv-nochunk"
+
+# Score each run (--model must match the directory name created under pred/)
+python eval.py --model <model-name>-ori
+python eval.py --model <model-name>_prefill_no_kv-nochunk
 ```
 
 ### Topic Retrieval (LongChat)

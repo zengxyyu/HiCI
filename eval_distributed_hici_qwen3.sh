@@ -1,8 +1,12 @@
 # Qwen3-8B HiCI Evaluation on PG19
-# bash eval_distributed_hici_qwen3.sh 2>&1 | tee eval_qwen3_Re/PG19_TEST_EVAL_Qwen3-8b_2k.txt
+# bash eval_distributed_hici_qwen3.sh 2>&1 | tee eval_qwen3_Re/PG19_TEST_EVAL_Qwen3-8b_hici_merged_8k.txt
 
 module load gcc/12.2.0
 module load cuda/12.5.1
+
+# 增大 NCCL 同步超时（默认 600s 不够，评估结束时 metric sync 耗时长）
+export NCCL_TIMEOUT=7200
+export TORCH_NCCL_BLOCKING_WAIT=0
 
 # 清理端口
 fuser -k 38493/tcp 2>/dev/null || echo "Port 38493 not in use"
@@ -14,7 +18,7 @@ BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
 CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k"
 nproc_per_node=2
 DATA_PATH="./data/pg19_qwen3/test.bin" #validation
-SEQ_LEN=32768  # 2048 4096 8192 16384 32768 49152
+SEQ_LEN=8192  # 2048 4096 8192 16384 32768 49152
 CONTEXT_SIZE=40960
 
 # HiCI 参数（必须和训练时一致）

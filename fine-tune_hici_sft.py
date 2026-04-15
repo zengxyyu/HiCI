@@ -369,12 +369,6 @@ class TrainingArguments(transformers.TrainingArguments):
         default=False,
         metadata={"help": "Whether to use the combined hierarchical forward (LocalConstructor + GlobalIntegrator)."},
     )
-    recurrence_size: Optional[int] = field(
-        default=128,
-        metadata={
-            "help": "Number of tokens to carry from previous chunk (Transformer-XL style)."
-        },
-    )
     hici_grad_clip: float = field(
         default=0.3,
         metadata={"help": "Gradient clipping for HiCI modules."},
