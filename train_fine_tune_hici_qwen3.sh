@@ -1,15 +1,15 @@
 # bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Train_out_qwen3/Qwen3-84-bothhigher_multi_clip_2e_clean_share.txt
-# bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Train_out_qwen3/Qwen3-8b-hici-64k-G8-stage3_causal_gi.txt
+# bash train_fine_tune_hici_qwen3.sh 2>&1 | tee Train_out_qwen3/Qwen3-8b-hici-48k-G4_causal_gi.txt
 
 pkill -9 -f "fine-tune_hici_qwen3.py"
 
 # Qwen3-8B HiCI Training on Gadi (4x H200)
-MODEL_PATH="./models/Qwen3-8B"
-OUTPUT_DIR="./checkpoints/Qwen3-8b-hici-64k-G8-stage3"
+MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Qwen3-8B"
+OUTPUT_DIR="./checkpoints/Qwen3-8b-hici-48k-G4_causal_gi"
 MAX_LENGTH=49152  # 8192 32768 49152 51200 65536 131072
 WARMUP_STEPS=20
 hici_lr=2e-4
-nproc_per_node=2
+nproc_per_node=4
 hici_grad_clip=0.3
 low_rank_training=True
 
@@ -74,7 +74,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_train_epochs 1  \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 32 \
+      --gradient_accumulation_steps 16 \
       --eval_strategy "no" \
       --save_strategy "steps" \
       --save_steps 100 \

@@ -108,11 +108,8 @@ dataset.save_to_disk('./cache/datasets')
 ### SFT data (LongAlpaca-12k)
 
 ```bash
-python -c "
-from datasets import load_dataset
-ds = load_dataset('Yukang/LongAlpaca-12k')
-ds['train'].to_json('data/sft/LongAlpaca-12k.json')
-"
+mkdir -p data/sft
+wget -P data/sft https://huggingface.co/datasets/Yukang/LongAlpaca-12k/resolve/main/LongAlpaca-12k.json
 ```
 
 ### Evaluation data (PG-19)

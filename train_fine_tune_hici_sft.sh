@@ -1,25 +1,21 @@
 #!/bin/bash
-source ~/venv/zxy/bin/activate
 # bash train_fine_tune_hici_sft.sh 2>&1 | tee Train_out_sft/Llama-2-7b-16k-SFT-clean-share-hici-16.txt
-
-# GPU抢占脚本 (训练结束后自动启动)
-trap 'echo ""; echo "🎯 训练脚本退出，开始在 tmux 中抢占GPU..."; tmux new-session -d -s gpu_grab "bash /mnt/bn/strategy-mllm-train/user/xuqi/grab.sh" 2>/dev/null || tmux send-keys -t gpu_grab "bash /mnt/bn/strategy-mllm-train/user/xuqi/grab.sh" C-m; echo "✅ 抢占脚本已在 tmux session \"gpu_grab\" 中启动"; echo "💡 查看抢占状态: tmux attach -t gpu_grab"' EXIT
 pkill -9 -f "fine-tune_hici_sft.py"
 fuser -k 38493/tcp 2>/dev/null || echo "✅ Port 38493 not in use"
 sleep 2
 
 # 基础配置
-MODEL_PATH="/mnt/bn/strategy-mllm-train/user/xuqi/repos/zxy/llm-memory/data1/pretrained-models/llama-7b-hf/models--meta-llama--Llama-2-7b-hf/snapshots/01c7f73d771dfac7d292323805ebc428287df4f9"
+MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Llama-2-7b-hf"
 # MODEL_PATH="./models/Llama-2-7b-chat-hf"
-RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-16k-FTM-NEW-8-bothhigher_multi_clip_2e_clean_share/checkpoint-1000"
+RESUME_CHECKPOINT="/scratch/sh89/xz2053/projects/llm-memory/checkpoints/Llama-2-7b-8k-hici-causal_gi-G4/checkpoint-1000"
 # RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-16k-FTM-NEW-75-bothhigher_multi_clip_2e_clean_share_woO/checkpoint-1000"
-OUTPUT_DIR="./checkpoints/Llama-2-7b-16k-SFT-clean-share-hici-16"
+OUTPUT_DIR="./checkpoints/Llama-2-7b-16k-SFT-hici-16"
 MAX_LENGTH=16384  # SFT通常使用 8192 或 16384 不需要 32768
-DATA_PATH="./data/sft/LongAlpaca-12k.json"
+DATA_PATH="/scratch/sh89/xz2053/projects/llm-memory/data/sft/LongAlpaca-12k.json"
 # DATA_PATH="./data/sft/LongAlpaca-16k-length/LongAlpaca-16k-length.json"
 
 # 训练超参数
-nproc_per_node=8
+nproc_per_node=4
 WARMUP_STEPS=20
 NUM_EPOCHS=15 
 MAX_STEPS=3000  # -1 表示根据 epochs 自动计算；也可设置固定值如 1000
@@ -102,7 +98,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_train_epochs $NUM_EPOCHS \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 8 \
+      --gradient_accumulation_steps 16 \
       --evaluation_strategy "no" \
       --save_strategy "steps" \
       --save_steps 500 \

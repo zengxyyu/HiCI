@@ -135,7 +135,7 @@ class LayeredLRTrainer(Trainer):
                     print(f"\n  📊 HiCI Module Parameters Breakdown:")
                     print(f"  " + "-" * 68)
 
-                    if global_memory_count > 0:
+                    if local_constructor_count > 0:
                         print(f"    🧠 LocalConstructor:")
                         print(
                             f"       Count: {local_constructor_count:,} ({local_constructor_count / total_count * 100:.2f}%)"
