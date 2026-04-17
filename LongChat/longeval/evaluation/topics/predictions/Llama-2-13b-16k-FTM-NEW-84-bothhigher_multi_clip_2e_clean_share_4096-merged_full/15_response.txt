@@ -5,15 +5,15 @@ Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfu
 Label: The impact of technology on human connection, Predict: ['the impact of technology on human connection.'], prompt length: 9585
 Label: The impact of technology on human connection, Predict: ['the impact of technology on human connection.'], prompt length: 9665
 Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture.'], prompt length: 9534
-Label: The psychology of creativity, Predict: ['the psychology of creativity.'], prompt length: 9475
-Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages.'], prompt length: 9530
+Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 9475
+Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages. '], prompt length: 9530
 Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind.'], prompt length: 9876
 Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages.'], prompt length: 9606
 Label: The psychology of happiness, Predict: ['the psychology of happiness.'], prompt length: 9319
 Label: The psychology of creativity, Predict: ['the psychology of creativity.'], prompt length: 9467
 Label: The impact of technology on human connection, Predict: ['the impact of technology on human connection.'], prompt length: 9726
 Label: The impact of technology on privacy and security, Predict: ['the impact of technology on privacy and security.'], prompt length: 9410
-Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages.'], prompt length: 9693
+Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages. '], prompt length: 9693
 Label: The psychology of happiness, Predict: ['the psychology of happiness.'], prompt length: 9105
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 9652
 Label: The impact of social media on communication, Predict: ['the impact of social media on communication.'], prompt length: 9351
@@ -21,14 +21,14 @@ Label: The effects of climate change on ocean ecosystems, Predict: ['the effects
 Label: The future of renewable energy storage, Predict: ['the future of renewable energy storage.'], prompt length: 9493
 Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture.'], prompt length: 9852
 Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture.'], prompt length: 9338
-Label: The benefits of reading for pleasure, Predict: ['the benefits of reading for pleasure.'], prompt length: 9191
+Label: The benefits of reading for pleasure, Predict: ['the benefits of reading for pleasure. '], prompt length: 9191
 Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages.'], prompt length: 9379
 Label: The role of art in society, Predict: ['the role of art in society.'], prompt length: 9334
-Label: The role of sports in society, Predict: ['the role of sports in society.'], prompt length: 9247
-Label: The benefits of learning a new language, Predict: ['the benefits of learning a new language. '], prompt length: 9483
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 9247
+Label: The benefits of learning a new language, Predict: ['the benefits of learning a new language.'], prompt length: 9483
 Label: The effects of air pollution on human health, Predict: ['the effects of air pollution on human health.'], prompt length: 9560
 Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature.'], prompt length: 9588
-Label: The role of sports in society, Predict: ['the role of sports in society.'], prompt length: 9467
+Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 9467
 Label: The role of music in society, Predict: ['the role of music in society.'], prompt length: 9190
 Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature.'], prompt length: 9702
 Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture.'], prompt length: 9313

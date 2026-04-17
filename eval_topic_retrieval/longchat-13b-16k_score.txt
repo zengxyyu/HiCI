@@ -1,0 +1,83 @@
+Model: longchat-13b-16k
+
+━━━ 5 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-13b-16k/5_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 10 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-13b-16k/10_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 15 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-13b-16k/15_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 20 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-13b-16k/20_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the impact of social media on communication
+  Predict: the first topic we discussed was the impact of social media on body image.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 49/50 = 98.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 25 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-13b-16k/25_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the effects of climate change on ocean ecosystems
+  Predict: the first topic we discussed was the impact of climate change on ocean ecosystems.
+
+✗ Label  : the benefits of spending time in nature
+  Predict: the first topic we discussed was the benefits of mindfulness meditation.
+
+✗ Label  : the effects of air pollution on human health
+  Predict: the first topic we discussed was the impact of social media on body image.
+
+✗ Label  : the future of renewable energy technology
+  Predict: the first topic we discussed was the history and impact of renewable energy technology.
+
+✗ Label  : the benefits of spending time in nature
+  Predict: the first topic we discussed was the benefits of regular exercise.
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the history and impact of the renaissance.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 44/50 = 88.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+

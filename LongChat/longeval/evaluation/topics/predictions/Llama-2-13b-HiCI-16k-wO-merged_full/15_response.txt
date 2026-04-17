@@ -1,0 +1,5 @@
+Label: The role of art in society, Predict: ['the role of art in society.'], prompt length: 9535
+Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise.'], prompt length: 9669
+Label: The impact of social media on mental health in adults, Predict: ['the impact of social media on mental health in adults.'], prompt length: 9437
+Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfulness meditation.'], prompt length: 9356
+Label: The impact of technology on human connection, Predict: ['the impact of technology on human connection.'], prompt length: 9585

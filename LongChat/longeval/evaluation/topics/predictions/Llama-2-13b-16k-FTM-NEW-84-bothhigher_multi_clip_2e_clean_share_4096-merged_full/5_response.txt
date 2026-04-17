@@ -6,14 +6,14 @@ Label: The effects of climate change on ocean ecosystems, Predict: ['the effects
 Label: The benefits of volunteering, Predict: ['the benefits of volunteering. '], prompt length: 3062
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance. '], prompt length: 3341
 Label: The role of sports in society, Predict: ['the role of sports in society. '], prompt length: 3145
-Label: The psychology of happiness, Predict: ['the psychology of happiness. '], prompt length: 3069
+Label: The psychology of happiness, Predict: ['the psychology of happiness.'], prompt length: 3069
 Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations. '], prompt length: 3187
 Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind. '], prompt length: 3449
 Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature. '], prompt length: 3435
 Label: The psychology of creativity, Predict: ['the psychology of creativity. '], prompt length: 3509
 Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise. '], prompt length: 3159
 Label: The role of education in society, Predict: ['the role of education in society. '], prompt length: 3379
-Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health. '], prompt length: 3227
+Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 3227
 Label: The psychology of happiness, Predict: ['the psychology of happiness. '], prompt length: 3289
 Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems. '], prompt length: 3055
 Label: The future of sustainable agriculture, Predict: ['the future of sustainable agriculture. '], prompt length: 3152

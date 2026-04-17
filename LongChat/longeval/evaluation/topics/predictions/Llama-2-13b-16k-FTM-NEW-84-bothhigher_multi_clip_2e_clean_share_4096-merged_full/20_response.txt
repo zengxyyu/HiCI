@@ -2,7 +2,7 @@ Label: The benefits of a plant-based diet, Predict: ['the benefits of a plant-ba
 Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 12574
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12463
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12675
-Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfulness meditation.'], prompt length: 12713
+Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfulness meditation. '], prompt length: 12713
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12585
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12655
 Label: The future of renewable energy storage, Predict: ['the future of renewable energy storage.'], prompt length: 12737
@@ -31,10 +31,10 @@ Label: The role of music in society, Predict: ['the role of music in society.'],
 Label: The psychology of happiness, Predict: ['the psychology of happiness.'], prompt length: 12440
 Label: The benefits of learning a new language, Predict: ['the benefits of learning a new language.'], prompt length: 12404
 Label: The impact of social media on mental health in adults, Predict: ['the impact of social media on mental health in adults.'], prompt length: 12691
-Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 12304
+Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health. '], prompt length: 12304
 Label: The benefits of a plant-based diet, Predict: ['the benefits of a plant-based diet.'], prompt length: 12466
 Label: The role of sports in society, Predict: ['the role of sports in society.'], prompt length: 12595
-Label: The benefits of reading for pleasure, Predict: ['the benefits of reading for pleasure.'], prompt length: 12542
+Label: The benefits of reading for pleasure, Predict: ['the benefits of reading for pleasure. '], prompt length: 12542
 Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations.'], prompt length: 12772
 Label: The future of renewable energy storage, Predict: ['the future of renewable energy storage.'], prompt length: 12643
 Label: The psychology of addiction and recovery, Predict: ['the psychology of addiction and recovery.'], prompt length: 12474
@@ -44,7 +44,7 @@ Label: The role of education in society, Predict: ['the role of education in soc
 Label: The future of renewable energy technology, Predict: ['the future of renewable energy technology.'], prompt length: 12415
 Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 12752
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12653
-Label: The role of art in society, Predict: ['the role of art in society.'], prompt length: 12492
+Label: The role of art in society, Predict: ['the role of art in society. '], prompt length: 12492
 Label: The role of education in society, Predict: ['the role of education in society.'], prompt length: 12557
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 12949
 Label: The benefits of volunteering, Predict: ['the benefits of volunteering.'], prompt length: 12568

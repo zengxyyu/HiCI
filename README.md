@@ -601,32 +601,47 @@ python passkey_retrivial.py \
     --interval 1024
 ```
 
+### Topic Retrieval
+
+Evaluation runs in two stages. First, `eval_topic_retrieval_predict.sh` runs the model and writes raw predictions to `LongChat/longeval/evaluation/topics/predictions/<model-name>_full/`. Then, the predictions can be scored in two ways: rule-based scoring via `eval_topic_retrieval_score.sh` (no API key, results saved to `eval_topic_retrieval/<model-name>_score.txt`), or LLM-based scoring via `auto_topic_eval.py` (requires an OpenAI API key).
+
+```bash
+# Stage 1: generate predictions (edit MODEL_NAME inside the script first)
+bash eval_topic_retrieval_predict.sh
+
+# Stage 2: score the predictions (two options)
+```
+
+**Option A — Rule-based scoring** (no API key required): `eval_topic_retrieval_score.sh` uses `topic_retrieval_manual_eval.py`, which checks whether the label string appears in the model's output. Fast and reproducible, but simple string matching may occasionally mis-score edge cases — spot-check the raw `.txt` files in `eval_topic_retrieval/` if needed.
+
+```bash
+bash eval_topic_retrieval_score.sh full
+```
+
+**Option B — GPT auto-scoring** (requires OpenAI API key): uses `auto_topic_eval.py` inside LongChat for LLM-based judgement, which handles paraphrases and formatting variations that rule-based matching would miss.
+
+```bash
+export OPENAI_API_KEY='your-api-key'
+cd LongChat/longeval
+python3 auto_topic_eval.py --test_file evaluation/topics/predictions/<model-name>_full/*.txt
+```
+
 ### LongBench
 
-Two runs are needed — one baseline (no HiCI) and one HiCI — for comparison, both using `run_pred.sh`:
+Requires an SFT model (trained with `fine-tune_hici_sft.py`). Two options — baseline (no HiCI) and HiCI — both using `run_pred.sh`:
 
 ```bash
 cd LongBench/LongBench
 
 # Baseline: --ori disables HiCI, uses standard full attention
-bash run_pred.sh --model <model-name> --ori --suffix "-ori"
+bash run_pred.sh --model <model-name> --ori --suffix "_ori"
 
-# HiCI: HiCI hierarchical attention in prefill (default mode, no KV cache injection)
-bash run_pred.sh --model <model-name> --suffix "_prefill_no_kv-nochunk"
+# HiCI: HiCI hierarchical attention in prefill (entire sequence as one group, no segmentation)
+bash run_pred.sh --model <model-name> --suffix "_hici"
 
 # Score each run (--model must match the directory name created under pred/)
-python eval.py --model <model-name>-ori
-python eval.py --model <model-name>_prefill_no_kv-nochunk
-```
-
-### Topic Retrieval (LongChat)
-
-```bash
-cd LongChat/longeval
-python3 eval.py \
-    --model-name-or-path ../../models/merged/Llama-3-8b-HiCI-32k \
-    --task topics --num_gpus 4 --max_gpu_memory 80 \
-    --enable_hici_grouped_attn --hici_segment_size 1024
+python eval.py --model <model-name>_ori
+python eval.py --model <model-name>_hici
 ```
 
 ---
@@ -649,6 +664,7 @@ If you find this project useful in your research, please consider citing:
 ## Acknowledgement
 
 - This work is built upon [LongLoRA](https://github.com/dvlab-research/LongLoRA) (ICLR 2024 Oral).
+- Pre-trained base models: [LLaMA-2](https://huggingface.co/meta-llama/Llama-2-7b-hf), [LLaMA-3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) by Meta, and [Qwen3](https://huggingface.co/Qwen/Qwen3-8B) by Alibaba.
 - Training is accelerated by [DeepSpeed](https://github.com/microsoft/DeepSpeed), [PEFT](https://github.com/huggingface/peft), and [Flash-Attention 2](https://github.com/Dao-AILab/flash-attention).
 - We use [LongChat](https://github.com/DachengLi/LongChat) for topic retrieval evaluation.
 - SFT data: [LongAlpaca-12k](https://huggingface.co/datasets/Yukang/LongAlpaca-12k) by Yukang Chen et al.

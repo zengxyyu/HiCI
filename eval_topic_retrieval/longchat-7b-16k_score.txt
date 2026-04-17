@@ -1,0 +1,158 @@
+Model: longchat-7b-16k
+
+━━━ 5 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-7b-16k/5_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 10 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-7b-16k/10_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the impact of technology on privacy and security.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 49/50 = 98.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 15 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-7b-16k/15_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the future of renewable energy storage
+  Predict: the first topic we discussed was the impact of technology on mental health.
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the future of renewable energy technology.
+
+✗ Label  : the future of renewable energy technology
+  Predict: the first topic we discussed was the benefits of reading for pleasure.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 47/50 = 94.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 20 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-7b-16k/20_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the future of renewable energy storage
+  Predict: the first topic we discussed was the benefits of spending time in nature.
+
+✗ Label  : the role of music in society
+  Predict: the first topic we discussed was the history and culture of ancient civilizations.
+
+✗ Label  : the impact of social media on mental health in adults
+  Predict: the first topic we discussed was the history and culture of the middle ages.
+
+✗ Label  : the benefits of a plant-based diet
+  Predict: the first topic we discussed was the effects of climate change on ocean ecosystems.
+
+✗ Label  : the role of sports in society
+  Predict: the first topic we discussed was the history and culture of ancient civilizations.
+
+✗ Label  : the role of art in society
+  Predict: the first topic we discussed was the history and culture of the middle ages.
+
+✗ Label  : the future of renewable energy technology
+  Predict: the first topic we discussed was the benefits of a plant-based diet.
+
+✗ Label  : the role of education in society
+  Predict: the first topic we discussed was the effects of air pollution on human health.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 42/50 = 84.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 25 topics ━━━
+
+File   : /g/data/hn98/Yang/llm-mem/HiCI/LongChat/longeval/evaluation/topics/predictions/longchat-7b-16k/25_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the effects of climate change on ocean ecosystems.
+
+✗ Label  : the future of space tourism
+  Predict: the first topic we discussed was the history and culture of ancient civilizations.
+
+✗ Label  : the impact of technology on human connection
+  Predict: the first topic we discussed was the effects of technology on human connection.
+
+✗ Label  : the psychology of creativity
+  Predict: the first topic we discussed was the history and impact of the renaissance.
+
+✗ Label  : the benefits of spending time in nature
+  Predict: the first topic we discussed was the benefits of mindfulness meditation.
+
+✗ Label  : the future of space tourism
+  Predict: the first topic we discussed was the benefits of regular exercise.
+
+✗ Label  : the role of education in society
+  Predict: the first topic we discussed was the effects of social media on mental health.
+
+✗ Label  : the future of renewable energy technology
+  Predict: the first topic we discussed was the history and impact of renewable energy technology.
+
+✗ Label  : the role of art in society
+  Predict: the first topic we discussed was the effects of climate change on ocean ecosystems.
+
+✗ Label  : the benefits of learning a new language
+  Predict: the first topic we discussed was the effects of climate change on ocean ecosystems.
+
+✗ Label  : the role of music in society
+  Predict: the first topic we discussed was the impact of technology on communication.
+
+✗ Label  : the role of art in society
+  Predict: the first topic we discussed was the effects of air pollution on human health.
+
+✗ Label  : the impact of social media on mental health in adults
+  Predict: the first topic we discussed was the effects of social media on mental health in adults.
+
+✗ Label  : the impact of technology on privacy and security
+  Predict: the first topic we discussed was the effects of technology on privacy and security.
+
+✗ Label  : the impact of social media on body image
+  Predict: the first topic we discussed was the effects of social media on body image.
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the history and impact of the renaissance.
+
+✗ Label  : the role of education in society
+  Predict: the first topic we discussed was the benefits of learning a new language.
+
+✗ Label  : the future of sustainable agriculture
+  Predict: the first topic we discussed was the effects of sleep on overall health.
+
+✗ Label  : the role of education in society
+  Predict: the first topic we discussed was the effects of sleep on overall health.
+
+✗ Label  : the impact of social media on communication
+  Predict: the first topic we discussed was the history and culture of ancient civilizations.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 30/50 = 60.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+

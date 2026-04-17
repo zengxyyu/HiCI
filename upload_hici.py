@@ -26,7 +26,7 @@ CONFIGS = {
         "lora_files": [
             "adapter_model.safetensors",  # LoRA weights (safetensors format)
             "adapter_config.json",        # LoRA config (includes base_model path)
-            "trainable_params.bin",       # embed + norm + local_constructor + global_integrator
+            "trainable_params.bin",       # embed + norm + global_memory + hierarchical_aggregator
         ],
         "tokenizer_files": [              # BPE tokenizer, no tokenizer.model
             "tokenizer.json",
@@ -44,13 +44,28 @@ CONFIGS = {
         "lora_files": [
             "adapter_model.bin",    # LoRA weights (.bin format for Llama-2)
             "adapter_config.json",  # LoRA config (includes base_model path)
-            "trainable_params.bin", # embed + norm + local_constructor + global_integrator
+            "trainable_params.bin", # embed + norm + global_memory + hierarchical_aggregator
         ],
         "tokenizer_files": [        # SentencePiece tokenizer
             "tokenizer.model",
             "tokenizer.json",
             "tokenizer_config.json",
             "added_tokens.json",
+            "special_tokens_map.json",
+        ],
+    },
+    "llama3": {
+        "model_name":      "Llama-3-8b-32k-hici-causal_g-G4",
+        "checkpoint_path": "./checkpoints/Llama-3-8b-32k-hici-causal_g-G4/checkpoint-1000",
+        "adapter_file":    "adapter_model.bin",
+        "lora_files": [
+            "adapter_model.bin",    # LoRA weights (.bin format)
+            "adapter_config.json",  # LoRA config (includes base_model path)
+            "trainable_params.bin", # embed + norm + global_memory + hierarchical_aggregator
+        ],
+        "tokenizer_files": [        # tiktoken tokenizer (no tokenizer.model for Llama-3)
+            "tokenizer.json",
+            "tokenizer_config.json",
             "special_tokens_map.json",
         ],
     },
@@ -100,8 +115,9 @@ base_model: Qwen/Qwen3-8B
 
 ## Model Description
 
-This is a **LoRA adapter** for Qwen3-8B with **HiCI (Hierarchical Construction-Integration)** architecture,
-trained for long-context understanding up to **48K tokens**.
+This is a **HiCI adapter checkpoint** for Qwen3-8B, extending its context window to **48K tokens**.
+It contains three components: LoRA adapters (q/k/v/o\_proj), HiCI module weights (LocalConstructor + GlobalIntegrator),
+and fine-tuned embedding + LayerNorm weights.
 
 Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
 
@@ -123,8 +139,8 @@ adapter_model.safetensors  (27 MB)
 └── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
 
 trainable_params.bin  (~4 GB)
-├── local_constructor.*        — Local Construction modules (36 layers)
-├── global_integrator.*        — Global Integration modules (36 layers)
+├── global_memory.*            — Local Construction modules (36 layers)
+├── hierarchical_aggregator.*  — Global Integration modules (36 layers)
 ├── self_attn.q_norm / k_norm  — QK-Norm weights (Qwen3-specific, 36 layers)
 ├── input_layernorm / post_attention_layernorm — LayerNorm weights (36 layers)
 ├── model.embed_tokens.weight  — Token embeddings
@@ -166,7 +182,7 @@ base_model = transformers.AutoModelForCausalLM.from_pretrained(
 )
 
 # 3. Register HiCI modules (must match training config)
-hici_attn.register_hici_to_model(base_model, num_local_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
+hici_attn.register_hici_to_model(base_model, num_memory_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
 
 # 4. Load LoRA adapter + trainable_params
 model = PeftModel.from_pretrained(base_model, "{HF_USERNAME}/{model_name}")
@@ -207,8 +223,9 @@ base_model: meta-llama/Llama-2-7b-hf
 
 ## Model Description
 
-This is a **LoRA adapter** for Llama-2-7B with **HiCI (Hierarchical Construction-Integration)** architecture,
-trained for long-context understanding up to **8K tokens**.
+This is a **HiCI adapter checkpoint** for Llama-2-7B, extending its context window to **8K tokens**.
+It contains three components: LoRA adapters (q/k/v/o\_proj), HiCI module weights (LocalConstructor + GlobalIntegrator),
+and fine-tuned embedding + LayerNorm weights.
 
 Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
 
@@ -230,8 +247,8 @@ adapter_model.bin  (27 MB)
 └── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
 
 trainable_params.bin  (~2 GB)
-├── local_constructor.*        — Local Construction modules (32 layers)
-├── global_integrator.*        — Global Integration modules (32 layers)
+├── global_memory.*            — Local Construction modules (32 layers)
+├── hierarchical_aggregator.*  — Global Integration modules (32 layers)
 ├── input_layernorm / post_attention_layernorm — LayerNorm weights (32 layers)
 ├── model.embed_tokens.weight  — Token embeddings
 └── model.norm.weight          — Final LayerNorm
@@ -272,7 +289,7 @@ base_model = transformers.AutoModelForCausalLM.from_pretrained(
 )
 
 # 3. Register HiCI modules (must match training config)
-hici_attn.register_hici_to_model(base_model, num_local_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
+hici_attn.register_hici_to_model(base_model, num_memory_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
 
 # 4. Load LoRA adapter + trainable_params
 model = PeftModel.from_pretrained(base_model, "{HF_USERNAME}/{model_name}")
@@ -291,9 +308,120 @@ This model follows the [Llama 2 Community License](https://ai.meta.com/llama/lic
 """
 
 
+def create_readme_llama3(model_name):
+    return f"""---
+language:
+- en
+license: llama3
+tags:
+- long-context
+- context-extension
+- hierarchical-attention
+- segmented-attention
+- llama-3
+- peft
+- lora
+- hici
+base_model: meta-llama/Meta-Llama-3-8B
+---
+
+# {model_name}
+
+## Model Description
+
+This is a **HiCI adapter checkpoint** for Llama-3-8B, extending its context window to **32K tokens**.
+It contains three components: LoRA adapters (q/k/v/o\_proj), HiCI module weights (LocalConstructor + GlobalIntegrator),
+and fine-tuned embedding + LayerNorm weights.
+
+Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
+
+### HiCI Architecture
+
+{HICI_ARCH_DESCRIPTION}
+
+```
+Input (32K tokens) → 4 segments × 8K
+  Stage 1: 8 local slots per segment → L_i
+  Stage 2: multi-view stats → K=4 global slots G
+  Stage 3: Q=[chunk], KV=[G, L_i, chunk] → Flash Attention
+```
+
+## Trainable Components
+
+```
+adapter_model.bin  (25 MB)
+└── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
+
+trainable_params.bin  (~3.5 GB)
+├── global_memory.*            — Local Construction modules (32 layers)
+├── hierarchical_aggregator.*  — Global Integration modules (32 layers)
+├── input_layernorm / post_attention_layernorm — LayerNorm weights (32 layers)
+├── model.embed_tokens.weight  — Token embeddings (vocab=128,258)
+└── model.norm.weight          — Final LayerNorm
+```
+
+**Note on Llama-3 GQA:** Llama-3-8B uses Grouped Query Attention (8 KV heads vs 32 query heads).
+The base `k_proj` / `v_proj` output dim is 1024 (not 4096). HiCI modules are unaffected — they
+use their own bottleneck projections (dim=512) independent of the base attention head structure.
+
+## Training Details
+
+- **Base Model**: meta-llama/Meta-Llama-3-8B
+- **Context Length**: 32,768 tokens (32K)
+- **Segments**: 4 × 8,192 tokens
+- **Local Representation Slots (M)**: 8 per segment
+- **Global Representation Slots (K)**: 4
+- **HiCI Attention Heads**: 8, Bottleneck dim: 512
+- **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
+- **Checkpoint**: step 1000
+- **Batch**: per_device=1, grad_accum=8 (effective batch=8)
+- **LR**: 2e-5 (LoRA), 2e-4 (HiCI modules), grad clip=0.3
+- **Precision**: bf16
+- **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
+
+## Usage
+
+**Requires `llama_attn_hici.py` from this repo.**
+
+```python
+import torch
+import transformers
+from peft import PeftModel
+import llama_attn_hici as hici_attn
+
+# 1. Replace attention with HiCI BEFORE loading model
+hici_attn.MIXED_GROUP_TRAINING = False
+hici_attn.replace_llama_attn(use_flash_attn=True, use_full=False, use_hierarchical_forward=True)
+
+# 2. Load base model
+base_model = transformers.AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Meta-Llama-3-8B", torch_dtype=torch.bfloat16, device_map="auto",
+)
+
+# 3. Register HiCI modules (must match training config)
+hici_attn.register_hici_to_model(base_model, num_memory_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
+
+# 4. Load LoRA adapter + trainable_params
+model = PeftModel.from_pretrained(base_model, "{HF_USERNAME}/{model_name}")
+
+# 5. Tokenizer (tiktoken-based, no tokenizer.model needed)
+tokenizer = transformers.AutoTokenizer.from_pretrained("{HF_USERNAME}/{model_name}")
+```
+
+## Citation
+
+{CITATION}
+
+## License
+
+This model follows the [Meta Llama 3 Community License](https://llama.meta.com/llama3/license/).
+"""
+
+
 README_CREATORS = {
     "qwen3":  create_readme_qwen3,
     "llama2": create_readme_llama2,
+    "llama3": create_readme_llama3,
 }
 
 # ====================================================
@@ -377,8 +505,8 @@ def upload(temp_dir, repo_id):
 
 def main():
     parser = argparse.ArgumentParser(description="Upload HiCI model to HuggingFace")
-    parser.add_argument("--model", required=True, choices=["qwen3", "llama2"],
-                        help="Which model to upload: qwen3 or llama2")
+    parser.add_argument("--model", required=True, choices=["qwen3", "llama2", "llama3"],
+                        help="Which model to upload: qwen3, llama2, or llama3")
     args = parser.parse_args()
 
     cfg = CONFIGS[args.model].copy()

@@ -1,0 +1,83 @@
+Model: Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full
+
+━━━ 5 topics ━━━
+
+File   : /g/data/hn98/Yang/xiangyu/HiCI/LongChat/longeval/evaluation/topics/predictions/Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full/5_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 10 topics ━━━
+
+File   : /g/data/hn98/Yang/xiangyu/HiCI/LongChat/longeval/evaluation/topics/predictions/Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full/10_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 15 topics ━━━
+
+File   : /g/data/hn98/Yang/xiangyu/HiCI/LongChat/longeval/evaluation/topics/predictions/Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full/15_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 20 topics ━━━
+
+File   : /g/data/hn98/Yang/xiangyu/HiCI/LongChat/longeval/evaluation/topics/predictions/Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full/20_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 50/50 = 100.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+━━━ 25 topics ━━━
+
+File   : /g/data/hn98/Yang/xiangyu/HiCI/LongChat/longeval/evaluation/topics/predictions/Llama-2-13b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_4096-merged_full/25_response.txt
+Samples: 50
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ Label  : the psychology of creativity
+  Predict: the impact of social media on mental health in adults.
+
+✗ Label  : the effects of climate change on ocean ecosystems
+  Predict: the impact of climate change on ocean ecosystems.
+
+✗ Label  : the benefits of spending time in nature
+  Predict: the benefits of mindfulness meditation.
+
+✗ Label  : the effects of air pollution on human health
+  Predict: the impact of technology on human health.
+
+✗ Label  : the effects of climate change on ocean ecosystems
+  Predict: the impact of technology on privacy and security.
+
+✗ Label  : the effects of air pollution on human health
+  Predict: the history and culture of the middle ages.
+
+✗ Label  : the benefits of learning a new language
+  Predict: the benefits of reading for pleasure.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Accuracy: 43/50 = 86.00%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+

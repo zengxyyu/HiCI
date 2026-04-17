@@ -12,7 +12,7 @@ Label: The future of space tourism, Predict: ['the future of space tourism.'], p
 Label: The effects of stress on the body and mind, Predict: ['the effects of stress on the body and mind.'], prompt length: 15548
 Label: The benefits of regular exercise, Predict: ['the benefits of regular exercise.'], prompt length: 15548
 Label: The history and impact of the Renaissance, Predict: ['the history and impact of the Renaissance.'], prompt length: 15616
-Label: The benefits of spending time in nature, Predict: ['the benefits of learning a new language.'], prompt length: 15693
+Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature.'], prompt length: 15693
 Label: The benefits of spending time in nature, Predict: ['the benefits of mindfulness meditation.'], prompt length: 15826
 Label: The future of space tourism, Predict: ['the future of space tourism.'], prompt length: 15584
 Label: The effects of sleep on overall health, Predict: ['the effects of sleep on overall health.'], prompt length: 15991
@@ -20,15 +20,15 @@ Label: The history and culture of ancient civilizations, Predict: ['the history 
 Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfulness meditation.'], prompt length: 15629
 Label: The psychology of happiness, Predict: ['the psychology of happiness.'], prompt length: 15697
 Label: The role of education in society, Predict: ['the role of education in society.'], prompt length: 15665
-Label: The effects of air pollution on human health, Predict: ['the impact of technology on human connection.'], prompt length: 15640
+Label: The effects of air pollution on human health, Predict: ['the impact of technology on human health.'], prompt length: 15640
 Label: The impact of social media on communication, Predict: ['the impact of social media on communication.'], prompt length: 15856
 Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations.'], prompt length: 15371
 Label: The benefits of mindfulness meditation, Predict: ['the benefits of mindfulness meditation.'], prompt length: 15606
-Label: The future of renewable energy technology, Predict: ['the history and culture of ancient civilizations.'], prompt length: 15836
-Label: The effects of climate change on ocean ecosystems, Predict: ['the effects of climate change on ocean ecosystems.'], prompt length: 15636
+Label: The future of renewable energy technology, Predict: ['the future of renewable energy technology.'], prompt length: 15836
+Label: The effects of climate change on ocean ecosystems, Predict: ['the impact of technology on privacy and security.'], prompt length: 15636
 Label: The role of art in society, Predict: ['the role of art in society.'], prompt length: 15910
 Label: The history and culture of the Middle Ages, Predict: ['the history and culture of the Middle Ages.'], prompt length: 15741
-Label: The benefits of spending time in nature, Predict: ['the benefits of volunteering.'], prompt length: 15723
+Label: The benefits of spending time in nature, Predict: ['the benefits of spending time in nature.'], prompt length: 15723
 Label: The history and culture of ancient civilizations, Predict: ['the history and culture of ancient civilizations.'], prompt length: 15698
 Label: The effects of air pollution on human health, Predict: ['the history and culture of the Middle Ages.'], prompt length: 15711
 Label: The benefits of learning a new language, Predict: ['the benefits of reading for pleasure.'], prompt length: 15699
