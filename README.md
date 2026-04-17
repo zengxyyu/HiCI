@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-<img src="imgs/hici_overview.png" width="80%">
+<img src="imgs/hici_overview.png" width="90%">
 </p>
 
 <p align="center">
@@ -39,8 +39,8 @@
 
 ## News
 
-- [2025.04] HiCI v2 updated on arXiv. Expanded results on LLaMA-3 and Qwen3.
-- [2025.03] [HiCI paper](https://arxiv.org/abs/2603.20843) released on arXiv.
+- [2026.04] HiCI v2 updated on arXiv. Expanded results on LLaMA-3 and Qwen3.
+- [2026.03] [HiCI paper](https://arxiv.org/abs/2603.20843) released on arXiv.
 
 ---
 
