@@ -591,6 +591,17 @@ Multi-node (2 nodes × 4 GPUs): `bash eval_distributed_hici_multinode.sh 0` / `.
 | `None`   | HiCI attention, same as training — not used in paper for fairness        |
 | `"full"` | Full attention (standard), used in all paper results for fair comparison |
 
+### ChunkLlama (Training-Free Baseline)
+
+[ChunkLlama](https://arxiv.org/abs/2402.17463) is a training-free context extension method used as a baseline in our paper. We extend the original implementation to support Qwen3 (`ChunkLlama/chunkqwen3_attn_replace.py`), which was not covered in the original paper.
+
+```bash
+bash eval_chunkdca_pg19.sh llama3          # DCA mode, LLaMA-3
+bash eval_chunkdca_pg19.sh qwen3           # DCA mode, Qwen3
+bash eval_chunkdca_pg19.sh llama3 baseline # original model, no DCA
+bash eval_chunkdca_pg19.sh qwen3  baseline
+```
+
 ### Passkey Retrieval
 
 ```bash
@@ -663,8 +674,9 @@ If you find this project useful in your research, please consider citing:
 
 ## Acknowledgement
 
-- This work is built upon [LongLoRA](https://github.com/dvlab-research/LongLoRA) (ICLR 2024 Oral).
+- We follow the training recipe of [LongLoRA](https://github.com/dvlab-research/LongLoRA) (ICLR 2024 Oral) — fine-tuning LoRA adapters together with embedding and LayerNorm weights — but replace Shift Short Attention with our HiCI hierarchical attention.
 - Pre-trained base models: [LLaMA-2](https://huggingface.co/meta-llama/Llama-2-7b-hf), [LLaMA-3](https://huggingface.co/meta-llama/Meta-Llama-3-8B) by Meta, and [Qwen3](https://huggingface.co/Qwen/Qwen3-8B) by Alibaba.
+- We integrate [ChunkLlama](https://github.com/HKUNLP/ChunkLlama) as a training-free baseline for comparison, and extend it to support Qwen3 (not covered in the original paper).
 - Training is accelerated by [DeepSpeed](https://github.com/microsoft/DeepSpeed), [PEFT](https://github.com/huggingface/peft), and [Flash-Attention 2](https://github.com/Dao-AILab/flash-attention).
 - We use [LongChat](https://github.com/DachengLi/LongChat) for topic retrieval evaluation.
 - SFT data: [LongAlpaca-12k](https://huggingface.co/datasets/Yukang/LongAlpaca-12k) by Yukang Chen et al.

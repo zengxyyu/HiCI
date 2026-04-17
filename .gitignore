@@ -46,6 +46,7 @@ eval_qwen3_Re/
 Training_out_fuxian/
 Train_out_qwen3/
 Train_out_sft/
+eval_topic_retrieval/
 
 # 保留重要的训练和评估日志
 !training_output*.txt

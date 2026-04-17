@@ -1,3 +1,4 @@
+# HiCI attention module — pre-training variant.
 # Modified based on https://github.com/lm-sys/FastChat
 
 import warnings
@@ -29,25 +30,25 @@ import os
 import json
 
 # ============================================================================
-# 🔥 混合分组训练配置
+# Mixed-group training configuration
 # ============================================================================
-# MIXED_GROUP_TRAINING = True: 每个 batch 随机选择 2/4/8 组
-# MIXED_GROUP_TRAINING = False: 使用固定的 group_size_ratio
+# MIXED_GROUP_TRAINING = True: randomly choose 2/4/8 groups per batch
+# MIXED_GROUP_TRAINING = False: use a fixed group_size_ratio
 MIXED_GROUP_TRAINING = False
-GROUP_SIZE_RATIOS = [1 / 2, 1 / 4, 1 / 8]  # 对应 2组, 4组, 8组
+GROUP_SIZE_RATIOS = [1 / 2, 1 / 4, 1 / 8]  # corresponding to 2, 4, 8 groups
 
-group_size_ratio = 1 / 4  # 默认值（MIXED_GROUP_TRAINING=False 时使用）
+group_size_ratio = 1 / 4  # default (used when MIXED_GROUP_TRAINING=False)
 
 # ============================================================================
-# 🎯 固定 segment_size 模式（用于评估，匹配训练时的分组大小）
+# Fixed segment-size mode (for evaluation; matches training segment size)
 # ============================================================================
-# USE_FIXED_SEGMENT_SIZE = True: 使用固定的 segment_size（评估时推荐）
-# USE_FIXED_SEGMENT_SIZE = False: 使用 group_size_ratio（训练时使用）
+# USE_FIXED_SEGMENT_SIZE = True: use a fixed segment_size (recommended for eval)
+# USE_FIXED_SEGMENT_SIZE = False: use group_size_ratio (used during training)
 USE_FIXED_SEGMENT_SIZE = False
-FIXED_SEGMENT_SIZE = 1024  # 固定每组大小（tokens）
+FIXED_SEGMENT_SIZE = 1024  # tokens per segment
 
 # ============================================================================
-# 🔥 Full Attention + HiCI mode (used to verify HiCI module behaviour)
+# Full Attention + HiCI mode (used to verify HiCI module behaviour)
 # ============================================================================
 # USE_FULL_ATTN_WITH_HICI = True: no chunking, but still applies HiCI
 #   - extract local slots from full input -> aggregate to global
@@ -55,39 +56,37 @@ FIXED_SEGMENT_SIZE = 1024  # 固定每组大小（tokens）
 # USE_FULL_ATTN_WITH_HICI = False: use chunked attention (default)
 USE_FULL_ATTN_WITH_HICI = True
 
-# 全局变量：确保同一个 forward pass 中所有层使用相同的分组
+# Global state: all layers share the same grouping within one forward pass
 _mixed_group_current_ratio = None
-_mixed_group_call_count = 0  # 用于检测新的 forward pass
+_mixed_group_call_count = 0  # used to detect a new forward pass
 rank = dist.get_rank() if dist.is_initialized() else 0
 
 # ============================================================================
-# 🎨 Attention可视化配置 (推理时使用)
+# Causal context mode
 # ============================================================================
-# COLLECT_ATTENTION_FOR_VIZ = True: 收集attention weights用于可视化
-# 注意: 仅在推理时开启，会略微增加计算量
-# ============================================================================
-# 🔒 Causal context mode
-# ============================================================================
-# "none"           - 原始行为：所有 segment 共享同一个 G（非因果，R1 质疑的问题）
-# "causal_gi"      - 方案一：segment_i 使用 G_i=Agg(L_1..L_i) 和 L_i
-#                    G 因果，L_i 有 bounded intra-segment leakage（bottleneck 压缩）
-# "causal_shift"   - 方案二：segment_i 使用 G_{i-1}=Agg(L_1..L_{i-1}) 和 L_{i-1}
-#                    完全因果，零泄露；segment_0 没有 G 和 L
-# "causal_shift_g" - 方案三：segment_i 仅使用 G_{i-1}=Agg(L_1..L_{i-1})，不拼接 L
-#                    完全因果，零泄露；避免 L_{i-1} 语义不对等
-# "causal_gi_gonly" - 方案五：segment_i 使用 G_i=Agg(L_1..L_i)，不拼接 L_i
-#                    G 因果（含当前段），L 不直接暴露；双重瓶颈抑制泄露 不shift
+# "none"           - default: all segments share one G (non-causal)
+# "causal_gi"      - option A: segment_i uses G_i=Agg(L_1..L_i) and L_i
+#                    G is causal; L_i has bounded intra-segment leakage
+# "causal_shift"   - option B: segment_i uses G_{i-1}=Agg(L_1..L_{i-1}) and L_{i-1}
+#                    strictly causal, zero leakage; segment_0 has no G or L
+# "causal_shift_g" - option C: segment_i uses only G_{i-1}, no L appended
+#                    strictly causal, zero leakage
+# "causal_gi_gonly"- option D: segment_i uses G_i=Agg(L_1..L_i), no L in KV
+#                    G is causal (includes current segment); double bottleneck
 CAUSAL_CONTEXT_MODE = "none"
 
+# ============================================================================
+# Attention visualization configuration (inference only)
+# ============================================================================
 COLLECT_ATTENTION_FOR_VIZ = False
 
-# 全局收集器 - 存储各层的attention统计
+# Global collector — stores per-layer attention statistics
 attention_visualizer = {
     "enabled": False,
-    "layer_attn_to_global": [],  # 各层对global的平均attention比例
-    "layer_attn_to_local": [],  # 各层对local的平均attention比例
-    "layer_attn_to_tokens": [],  # 各层对tokens的平均attention比例
-    "segment_attention_maps": [],  # 段内attention热力图 (可选，仅保存少量)
+    "layer_attn_to_global": [],  # per-layer mean attention fraction to global slots
+    "layer_attn_to_local": [],   # per-layer mean attention fraction to local slots
+    "layer_attn_to_tokens": [],  # per-layer mean attention fraction to tokens
+    "segment_attention_maps": [],  # per-segment attention heatmaps (sparse)
     "num_global_slots": 0,
     "num_local_slots": 0,
     "segment_len": 0,
@@ -95,7 +94,7 @@ attention_visualizer = {
 
 
 def reset_attention_visualizer():
-    """重置收集器，每次推理前调用"""
+    """Reset the attention visualizer; call before each inference pass."""
     global attention_visualizer
     attention_visualizer = {
         "enabled": COLLECT_ATTENTION_FOR_VIZ,
@@ -110,7 +109,7 @@ def reset_attention_visualizer():
 
 
 def save_attention_stats(save_path="attention_stats.json"):
-    """保存收集的attention统计到文件"""
+    """Save collected attention statistics to a JSON file."""
     import json
 
     stats = {
@@ -126,12 +125,12 @@ def save_attention_stats(save_path="attention_stats.json"):
     }
     with open(save_path, "w") as f:
         json.dump(stats, f, indent=2)
-    print(f"✅ Attention stats saved to {save_path}")
+    print(f"Attention stats saved to {save_path}")
     if stats["segment_attention_maps"]:
-        print(f"   包含 {len(stats['segment_attention_maps'])} 个attention heatmaps")
+        print(f"   Includes {len(stats['segment_attention_maps'])} attention heatmaps")
 
 
-# 版本1 没有多头的最初版本
+# LocalConstructor v1 — single-head, no Flash Attention
 class LocalConstructor(nn.Module):
     """
     Learnable query slots for local context construction (LocalConstructor).
@@ -158,30 +157,24 @@ class LocalConstructor(nn.Module):
         self.num_local_slots = num_local_slots
 
         # Learnable memory slots: [num_slots, hidden_size]
-        # ✅ 方案 2: 从预训练嵌入初始化（最优策略）
-        # if init_from_embeddings is not None:
+        # Embedding-based initialization is disabled; use standard normal with 1/sqrt(H) std.
         if False:
-            # 从预训练嵌入中随机采样 num_local_slots 个作为初始值
-            # 理论依据: 预训练嵌入已经包含丰富的语义信息，比随机噪声好得多
             indices = torch.randperm(init_from_embeddings.size(0))[:num_local_slots]
             self.memory_slots = nn.Parameter(init_from_embeddings[indices].clone())
-            # ✅ 只在 rank 0 打印
             if rank == 0:
                 print(
-                    f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
+                    f"    Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
                 )
         else:
-            # Fallback: 使用 LLaMA 标准初始化 (std=0.02)
-            std = 1.0 / math.sqrt(hidden_size)  # ≈ 0.0156 (太小！)
-            # std = 0.02  # LLaMA/GPT 标准
+            std = 1.0 / math.sqrt(hidden_size)
             self.memory_slots = nn.Parameter(
                 torch.randn(num_local_slots, hidden_size) * std
             )
             rank = dist.get_rank() if dist.is_initialized() else 0
-            layer_idx = getattr(self, "layer_idx", 0)  # 获取当前层索引
+            layer_idx = getattr(self, "layer_idx", 0)
             if rank == 0 and layer_idx == 0:
                 print(
-                    f"⚠️  版本1 LocalConstructor Fallback: Initialized memory_slots with std={std}"
+                    f"LocalConstructor v1: Initialized memory_slots with std={std}"
                 )
 
         # Cross-attention projections for summarization
@@ -225,16 +218,13 @@ class LocalConstructor(nn.Module):
         return global_context
 
 
-# 版本1的基础上 加了多头注意力和mask的实现 已检查
+# LocalConstructorMulti v2 — multi-head cross-attention with optional bottleneck
 class LocalConstructorMulti(nn.Module):
     """
-    Learnable query slots for local context construction (LocalConstructor).
+    Multi-head Local Construction module (standard PyTorch implementation, no Flash Attention).
 
-    多头注意力版本（不使用 Flash Attention），使用标准 PyTorch 实现，支持：
-    1. 多头注意力 - 更好的表达能力
-    2. Attention mask - 正确处理 padding tokens
-    3. Bottleneck 压缩 - 可选的信息瓶颈机制
-    4. LLaMA 权重初始化 - 从预训练权重 warm start
+    Extracts M learnable query slot representations from each input segment via
+    multi-head cross-attention. Supports optional bottleneck compression.
 
     This module is registered as a sub-module of LlamaAttention, ensuring:
     1. Parameters are properly registered in model.parameters()
@@ -251,7 +241,7 @@ class LocalConstructorMulti(nn.Module):
         bottleneck_dim: Bottleneck dimension (default: 2048)
     """
 
-    # 类变量：控制只打印一次初始化信息
+    # Class variable: print initialization message only once
     _init_msg_printed = False
 
     def __init__(
@@ -277,28 +267,24 @@ class LocalConstructorMulti(nn.Module):
         )
 
         # Learnable memory slots: [num_slots, hidden_size]
-        # ✅ 方案 2: 从预训练嵌入初始化（最优策略）
-        # if init_from_embeddings is not None:
+        # Embedding-based initialization is disabled; use standard normal with 1/sqrt(H) std.
         if False:
-            # 从预训练嵌入中随机采样 num_local_slots 个作为初始值
-            # 理论依据: 预训练嵌入已经包含丰富的语义信息，比随机噪声好得多
             indices = torch.randperm(init_from_embeddings.size(0))[:num_local_slots]
             self.memory_slots = nn.Parameter(init_from_embeddings[indices].clone())
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0:
                 print(
-                    f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
+                    f"    Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
                 )
         else:
-            # Fallback: 使用 LLaMA 标准初始化 (std=0.02)
-            std = 1.0 / math.sqrt(hidden_size)  # ≈ 0.0156
+            std = 1.0 / math.sqrt(hidden_size)
             self.memory_slots = nn.Parameter(
                 torch.randn(num_local_slots, hidden_size) * std
             )
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0 and not LocalConstructorMulti._init_msg_printed:
                 print(
-                    f"⚠️  LocalConstructorMulti Fallback: Initialized memory_slots with std={std}"
+                    f"LocalConstructorMulti: Initialized memory_slots with std={std}"
                 )
                 LocalConstructorMulti._init_msg_printed = True
 
@@ -311,72 +297,54 @@ class LocalConstructorMulti(nn.Module):
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0:
                 print(
-                    f"✅ LocalConstructorMulti: bottleneck_dim: {bottleneck_dim}, num_heads: {num_heads}"
+                    f"LocalConstructorMulti: bottleneck_dim={bottleneck_dim}, num_heads={num_heads}"
                 )
 
-            # 直接投影: hidden_size -> bottleneck_dim
+            # Direct projection: hidden_size -> bottleneck_dim
             self.q_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
             self.k_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
             self.v_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
 
-            # 输出投影: bottleneck_dim -> hidden_size
+            # Output projection: bottleneck_dim -> hidden_size
             self.o_proj = nn.Linear(bottleneck_dim, hidden_size, bias=False)
 
             # Effective dimensions for attention computation
             self.effective_dim = bottleneck_dim
             self.effective_head_dim = bottleneck_dim // num_heads
         else:
-            # Standard full-size projections: 4096 -> 4096
+            # Standard full-size projections: hidden_size -> hidden_size
             self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
             self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
             self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.o_proj = None  # 不需要额外的输出投影
+            self.o_proj = None  # no separate output projection needed
 
             # Use original dimensions
             self.effective_dim = hidden_size
             self.effective_head_dim = self.head_dim
 
-        # ========== 方案C：从 LLaMA Attention 层初始化 Q/K/V 投影 ==========
-        # 理论依据：
-        # 1. LLaMA 的 q_proj/k_proj/v_proj 是一起预训练的，有内在的"配对关系"
-        # 2. 从预训练权重初始化，Q 和 K 在同一个语义空间，初始 Q×K^T 有意义
-        # 3. 投影仍然是独立的参数，可以继续微调（不是冻结的！）
-        # 4. 这是 Warm Initialization，比随机初始化收敛更快
+        # Warm initialization from LLaMA pretrained Q/K/V weights (only without bottleneck)
         if init_from_llama_attn is not None and not use_bottleneck:
-            # 只有在不使用 bottleneck 时才能从 LLaMA 初始化（维度需要匹配）
             rank = dist.get_rank() if dist.is_initialized() else 0
-            layer_idx = getattr(self, "layer_idx", 0)  # 获取当前层索引
+            layer_idx = getattr(self, "layer_idx", 0)
             with torch.no_grad():
                 self.q_proj.weight.copy_(init_from_llama_attn.q_proj.weight)
                 self.k_proj.weight.copy_(init_from_llama_attn.k_proj.weight)
                 self.v_proj.weight.copy_(init_from_llama_attn.v_proj.weight)
             if rank == 0 and layer_idx == 0:
                 print(
-                    f"✅ [LocalConstructorMulti 方案C] Initialized Q/K/V projections from LLaMA pretrained weights"
+                    f"[LocalConstructorMulti] Initialized Q/K/V projections from LLaMA pretrained weights"
                 )
 
     def forward(self, hidden_states, attention_mask=None):
         """
-        Compute global context via multi-head cross-attention (standard PyTorch, no Flash Attention).
-
-        使用标准多头注意力实现：
-        - Q: query slots (no padding), fixed length = num_slots
-        - K/V: input sequence (可能有 padding), 使用 attention_mask 处理
-
-        数值稳定性优势：
-        - 标准 PyTorch attention: 精确计算，无分块近似误差
-        - 适合需要高数值精度的场景
-
-        内存占用：
-        - 中间张量: O(num_slots × seq_len) = O(M × N)
-        - 对于 8 slots × 100k tokens: ~0.8M 元素 ≈ 6 MB (bfloat16)
+        Compute local context via multi-head cross-attention (standard PyTorch, no Flash Attention).
 
         Args:
             hidden_states: [bsz, seq_len, hidden_size] - full input sequence
             attention_mask: [bsz, seq_len] - 1 for valid tokens, 0 for padding (optional)
 
         Returns:
-            global_context: [bsz, num_slots, hidden_size] - global summary
+            global_context: [bsz, num_slots, hidden_size] - local summary
         """
         bsz, seq_len, _ = hidden_states.shape
 
@@ -385,7 +353,7 @@ class LocalConstructorMulti(nn.Module):
             bsz, -1, -1
         )  # [bsz, num_slots, hidden_size]
 
-        # Cross-attention projections: 直接投影到目标维度 (bottleneck or full)
+        # Cross-attention projections: project to target dimension (bottleneck or full)
         Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, effective_dim]
         K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, effective_dim]
         V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, effective_dim]
@@ -402,9 +370,7 @@ class LocalConstructorMulti(nn.Module):
         K_seq = K_seq.transpose(1, 2)  # [bsz, num_heads, seq_len, effective_head_dim]
         V_seq = V_seq.transpose(1, 2)  # [bsz, num_heads, seq_len, effective_head_dim]
 
-        # Compute attention scores: Q @ K^T
-        # [bsz, num_heads, num_slots, effective_head_dim] @ [bsz, num_heads, effective_head_dim, seq_len]
-        # -> [bsz, num_heads, num_slots, seq_len]
+        # Compute attention scores: Q @ K^T -> [bsz, num_heads, num_slots, seq_len]
         scores = torch.matmul(Q_mem, K_seq.transpose(-2, -1)) / math.sqrt(
             self.effective_head_dim
         )
@@ -412,27 +378,19 @@ class LocalConstructorMulti(nn.Module):
         # Apply attention mask if provided
         if attention_mask is not None:
             # attention_mask: [bsz, seq_len] - 1 for valid, 0 for padding
-            # Expand for multi-head and num_slots: [bsz, 1, 1, seq_len]
             mask_expanded = attention_mask.unsqueeze(1).unsqueeze(
                 2
             )  # [bsz, 1, 1, seq_len]
-
-            # Convert to additive mask: 0 for valid, -inf for padding
-            # This will zero out attention to padding tokens after softmax
-            mask_value = torch.finfo(scores.dtype).min  # -inf for the dtype
+            mask_value = torch.finfo(scores.dtype).min
             scores = scores.masked_fill(mask_expanded == 0, mask_value)
 
-        # Apply softmax: [bsz, num_heads, num_slots, seq_len]
+        # Softmax: [bsz, num_heads, num_slots, seq_len]
         attn_weights = torch.softmax(scores, dim=-1)
 
-        # Apply attention to values: attn_weights @ V
-        # [bsz, num_heads, num_slots, seq_len] @ [bsz, num_heads, seq_len, effective_head_dim]
-        # -> [bsz, num_heads, num_slots, effective_head_dim]
+        # Weighted sum: [bsz, num_heads, num_slots, effective_head_dim]
         attn_output = torch.matmul(attn_weights, V_seq)
 
-        # Transpose back and reshape: [bsz, num_heads, num_slots, effective_head_dim]
-        # -> [bsz, num_slots, num_heads, effective_head_dim]
-        # -> [bsz, num_slots, effective_dim]
+        # Merge heads: [bsz, num_slots, effective_dim]
         attn_output = attn_output.transpose(1, 2).contiguous()
         global_context = attn_output.view(
             bsz, self.num_local_slots, self.effective_dim
@@ -447,237 +405,13 @@ class LocalConstructorMulti(nn.Module):
         return global_context
 
 
-# 版本2 加了flash attn和padding的实现 多头 独立的q kv投影
-class LocalConstructorFlashOri(nn.Module):
-    """
-    Learnable query slots for local context construction (LocalConstructor).
-
-    使用 Flash Attention 实现高效的 cross-attention，支持：
-    1. 超长序列（100k+）- 内存复杂度 O(N) 而不是 O(N²)
-    2. 正确处理 padding - 使用 unpad_input 移除 padding tokens
-
-    This module is registered as a sub-module of LlamaAttention, ensuring:
-    1. Parameters are properly registered in model.parameters()
-    2. Optimizer tracks and updates these parameters
-    3. Saved/loaded with model checkpoints
-
-    Args:
-        hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
-        num_local_slots: Number of learnable query slots (default: 8)
-        num_heads: Number of attention heads (default: 32, for Flash Attention)
-        init_from_embeddings: Optional pretrained embeddings for memory_slots initialization
-        init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization (方案C)
-    """
-
-    # 类变量：控制只打印一次初始化信息
-    _init_msg_printed = False
-
-    def __init__(
-        self,
-        hidden_size,
-        num_local_slots=8,
-        num_heads=32,
-        init_from_embeddings=None,
-        init_from_llama_attn=None,  # 新增：从 LLaMA Attention 层初始化 Q/K/V 投影
-        use_bottleneck: Optional[bool] = True,  # 未使用
-        bottleneck_dim: Optional[int] = 2048,  # 未使用
-    ):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.num_local_slots = num_local_slots
-        self.num_heads = num_heads
-        self.head_dim = hidden_size // num_heads
-
-        assert hidden_size % num_heads == 0, (
-            f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
-        )
-
-        # Learnable memory slots: [num_slots, hidden_size]
-        # ✅ 方案 2: 从预训练嵌入初始化（最优策略）
-        # if init_from_embeddings is not None:
-        if False:
-            # 从预训练嵌入中随机采样 num_local_slots 个作为初始值
-            # 理论依据: 预训练嵌入已经包含丰富的语义信息，比随机噪声好得多
-            indices = torch.randperm(init_from_embeddings.size(0))[:num_local_slots]
-            self.memory_slots = nn.Parameter(init_from_embeddings[indices].clone())
-            # ✅ 只在 rank 0 打印
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            if rank == 0:
-                print(
-                    f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
-                )
-        else:
-            # Fallback: 使用 LLaMA 标准初始化 (std=0.02)
-            std = 1.0 / math.sqrt(hidden_size)  # ≈ 0.0156 (太小！)
-            # std = 0.02  # LLaMA/GPT 标准
-            self.memory_slots = nn.Parameter(
-                torch.randn(num_local_slots, hidden_size) * std
-            )
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            if rank == 0 and not LocalConstructorFlashOri._init_msg_printed:
-                print(
-                    f"⚠️  LocalConstructorFlash Fallback: Initialized memory_slots with std={std}"
-                )
-                LocalConstructorFlashOri._init_msg_printed = True
-
-        # Cross-attention projections for summarization
-        self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-
-        # ========== 方案C：从 LLaMA Attention 层初始化 Q/K/V 投影 ==========
-        # 理论依据：
-        # 1. LLaMA 的 q_proj/k_proj/v_proj 是一起预训练的，有内在的"配对关系"
-        # 2. 从预训练权重初始化，Q 和 K 在同一个语义空间，初始 Q×K^T 有意义
-        # 3. 投影仍然是独立的参数，可以继续微调（不是冻结的！）
-        # 4. 这是 Warm Initialization，比随机初始化收敛更快
-        if init_from_llama_attn is not None:
-            rank = dist.get_rank() if dist.is_initialized() else 0
-            layer_idx = getattr(self, "layer_idx", 0)  # 获取当前层索引
-            with torch.no_grad():
-                self.q_proj.weight.copy_(init_from_llama_attn.q_proj.weight)
-                self.k_proj.weight.copy_(init_from_llama_attn.k_proj.weight)
-                self.v_proj.weight.copy_(init_from_llama_attn.v_proj.weight)
-            if rank == 0 and layer_idx == 0:
-                print(
-                    f"✅ [方案C] Initialized Q/K/V projections from LLaMA pretrained weights"
-                )
-
-    def forward(self, hidden_states, attention_mask=None):
-        """
-        Compute global context via Flash Attention cross-attention.
-
-        使用 flash_attn_varlen_kvpacked_func 实现：
-        - Q: query slots (no padding), fixed length = num_slots
-        - K/V: input sequence (可能有 padding), 使用 unpad_input 移除 padding
-
-        内存优势：
-        - 标准 matmul: O(num_slots × seq_len) 中间张量
-        - Flash Attention: O(1) 中间张量（分块计算）
-
-        Args:
-            hidden_states: [bsz, seq_len, hidden_size] - full input sequence
-            attention_mask: [bsz, seq_len] - 1 for valid, 0 for padding (optional)
-
-        Returns:
-            global_context: [bsz, num_slots, hidden_size] - global summary
-        """
-        bsz, seq_len, _ = hidden_states.shape
-
-        # Expand memory for batch
-        slots_input = self.memory_slots.unsqueeze(0).expand(
-            bsz, -1, -1
-        )  # [bsz, num_slots, hidden_size]
-
-        # Cross-attention projections
-        Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
-        K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, hidden_size]
-        V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, hidden_size]
-
-        # Reshape for multi-head attention: [bsz, seqlen, num_heads, head_dim]
-        Q_mem = Q_mem.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
-        K_seq = K_seq.view(bsz, seq_len, self.num_heads, self.head_dim)
-        V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.head_dim)
-
-        if attention_mask is not None:
-            # region
-            # ========== 方案 B: Flash Attention + unpad (正确处理 padding) ==========
-            #
-            # 原理：
-            # 1. 用 unpad_input 移除 K/V 中的 padding tokens
-            # 2. Q (memory slots) 没有 padding，每个 batch 样本都是 num_slots 个
-            # 3. 使用 flash_attn_varlen_kvpacked_func 做变长 cross-attention
-            #
-            # 示例：
-            #   batch 0: 有效长度 500, padding 524
-            #   batch 1: 有效长度 800, padding 224
-            #
-            #   unpad 后 K/V: [500 + 800, num_heads, head_dim] = [1300, ...]
-            #   cu_seqlens_kv = [0, 500, 1300]
-            #
-            #   Q: [bsz * num_slots, num_heads, head_dim] = [32, ...] (假设 num_slots=16, bsz=2)
-            #   cu_seqlens_q = [0, 16, 32]
-
-            # Pack K and V together: [bsz, seq_len, 2, num_heads, head_dim]
-            # endregion
-            kv = torch.stack([K_seq, V_seq], dim=2)
-
-            # Reshape for unpad_input: [bsz, seq_len, 2 * num_heads * head_dim]
-            kv_for_unpad = rearrange(kv, "b s two h d -> b s (two h d)")
-
-            # Remove padding from K/V
-            # kv_unpad: [total_valid_kv_tokens, 2 * num_heads * head_dim]
-            # cu_seqlens_kv: [bsz + 1], e.g., [0, 500, 1300]
-            kv_unpad, indices_kv, cu_seqlens_kv, max_seqlen_kv = unpad_input(
-                kv_for_unpad, attention_mask
-            )
-
-            # Reshape back: [total_valid_kv_tokens, 2, num_heads, head_dim]
-            kv_unpad = rearrange(
-                kv_unpad, "nnz (two h d) -> nnz two h d", two=2, h=self.num_heads
-            )
-
-            # Q has no padding, flatten: [bsz, num_slots, h, d] -> [bsz * num_slots, h, d]
-            q_unpad = rearrange(Q_mem, "b s h d -> (b s) h d")
-
-            # cu_seqlens_q: 每个 batch 样本的 Q 长度都是 num_slots
-            # e.g., bsz=2, num_slots=16 -> cu_seqlens_q = [0, 16, 32]
-            cu_seqlens_q = torch.arange(
-                0,
-                (bsz + 1) * self.num_local_slots,
-                self.num_local_slots,
-                device=hidden_states.device,
-                dtype=torch.int32,
-            )
-
-            # Flash Attention 变长 cross-attention
-            # Q: [total_q, num_heads, head_dim] where total_q = bsz * num_slots
-            # KV: [total_kv, 2, num_heads, head_dim] where total_kv = sum of valid lengths
-            output_unpad = flash_attn_varlen_kvpacked_func(
-                q_unpad,  # [bsz * num_slots, num_heads, head_dim]
-                kv_unpad,  # [total_valid_kv, 2, num_heads, head_dim]
-                cu_seqlens_q,  # [bsz + 1]
-                cu_seqlens_kv,  # [bsz + 1]
-                self.num_local_slots,  # max_seqlen_q (固定)
-                max_seqlen_kv,  # max_seqlen_kv (batch 中最长的有效长度)
-                dropout_p=0.0,
-                softmax_scale=None,  # 默认 1/sqrt(head_dim)
-                causal=False,  # Cross-attention 不需要 causal mask
-            )
-            # output_unpad: [bsz * num_slots, num_heads, head_dim]
-
-            # Reshape back: [bsz, num_slots, hidden_size]
-            global_context = rearrange(
-                output_unpad, "(b s) h d -> b s (h d)", b=bsz, s=self.num_local_slots
-            )
-        else:
-            # ========== 无 padding，使用简单的 flash_attn_func ==========
-            # 这是最高效的情况，直接使用 Flash Attention
-            global_context = flash_attn_func(
-                Q_mem,  # [bsz, num_slots, num_heads, head_dim]
-                K_seq,  # [bsz, seq_len, num_heads, head_dim]
-                V_seq,  # [bsz, seq_len, num_heads, head_dim]
-                dropout_p=0.0,
-                softmax_scale=None,
-                causal=False,
-            )
-            # global_context: [bsz, num_slots, num_heads, head_dim]
-
-            # Reshape: [bsz, num_slots, hidden_size]
-            global_context = rearrange(global_context, "b s h d -> b s (h d)")
-
-        return global_context
-
-
-# 版本2的瓶颈版本 加了flash attn和padding的实现 多头 独立的q kv投影 + kqv瓶颈投影 已检查
-# region ===========================================================================
+# LocalConstructorFlash v3 — Flash Attention cross-attention with padding support
 class LocalConstructorFlash(nn.Module):
     """
-    Learnable query slots for local context construction (LocalConstructor).
+    Learnable query slots for local context construction using Flash Attention.
 
-    使用 Flash Attention 实现高效的 cross-attention，支持：
-    1. 超长序列（100k+）- 内存复杂度 O(N) 而不是 O(N²)
-    2. 正确处理 padding - 使用 unpad_input 移除 padding tokens
+    Supports very long sequences (100k+) via O(N) memory complexity and
+    correct padding handling via unpad_input.
 
     This module is registered as a sub-module of LlamaAttention, ensuring:
     1. Parameters are properly registered in model.parameters()
@@ -687,12 +421,12 @@ class LocalConstructorFlash(nn.Module):
     Args:
         hidden_size: Model hidden dimension (e.g., 4096 for Llama-2-7B)
         num_local_slots: Number of learnable query slots (default: 8)
-        num_heads: Number of attention heads (default: 32, for Flash Attention)
+        num_heads: Number of attention heads (default: 32)
         init_from_embeddings: Optional pretrained embeddings for memory_slots initialization
-        init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization (方案C)
+        init_from_llama_attn: Optional LlamaAttention layer for Q/K/V projection initialization
     """
 
-    # 类变量：控制只打印一次初始化信息
+    # Class variable: print initialization message only once
     _init_msg_printed = False
 
     def __init__(
@@ -701,7 +435,7 @@ class LocalConstructorFlash(nn.Module):
         num_local_slots=8,
         num_heads=32,
         init_from_embeddings=None,
-        init_from_llama_attn=None,  # 新增：从 LLaMA Attention 层初始化 Q/K/V 投影
+        init_from_llama_attn=None,
         use_bottleneck: Optional[bool] = True,
         bottleneck_dim: Optional[int] = 2048,
     ):
@@ -718,30 +452,24 @@ class LocalConstructorFlash(nn.Module):
         )
 
         # Learnable memory slots: [num_slots, hidden_size]
-        # ✅ 方案 2: 从预训练嵌入初始化（最优策略）
-        # if init_from_embeddings is not None:
+        # Embedding-based initialization is disabled; use standard normal with 1/sqrt(H) std.
         if False:
-            # 从预训练嵌入中随机采样 num_local_slots 个作为初始值
-            # 理论依据: 预训练嵌入已经包含丰富的语义信息，比随机噪声好得多
             indices = torch.randperm(init_from_embeddings.size(0))[:num_local_slots]
             self.memory_slots = nn.Parameter(init_from_embeddings[indices].clone())
-            # ✅ 只在 rank 0 打印
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0:
                 print(
-                    f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
+                    f"    Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)"
                 )
         else:
-            # Fallback: 使用 LLaMA 标准初始化 (std=0.02)
-            std = 1.0 / math.sqrt(hidden_size)  # ≈ 0.0156 (太小！)
-            # std = 0.02  # LLaMA/GPT 标准
+            std = 1.0 / math.sqrt(hidden_size)
             self.memory_slots = nn.Parameter(
                 torch.randn(num_local_slots, hidden_size) * std
             )
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0 and not LocalConstructorFlash._init_msg_printed:
                 print(
-                    f"⚠️  LocalConstructorFlash_bot Fallback: Initialized memory_slots with std={std}"
+                    f"LocalConstructorFlash: Initialized memory_slots with std={std}"
                 )
                 LocalConstructorFlash._init_msg_printed = True
 
@@ -753,66 +481,57 @@ class LocalConstructorFlash(nn.Module):
             )
             rank = dist.get_rank() if dist.is_initialized() else 0
             if rank == 0:
-                print(f"✅ bottleneck_dim: {bottleneck_dim}")
+                print(f"LocalConstructorFlash: bottleneck_dim={bottleneck_dim}")
 
-            # 直接投影: hidden_size -> bottleneck_dim
+            # Direct projection: hidden_size -> bottleneck_dim
             self.q_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
             self.k_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
             self.v_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
 
-            # 输出投影: bottleneck_dim -> hidden_size
+            # Output projection: bottleneck_dim -> hidden_size
             self.o_proj = nn.Linear(bottleneck_dim, hidden_size, bias=False)
 
             # Effective dimensions for attention computation
             self.effective_dim = bottleneck_dim
             self.effective_head_dim = bottleneck_dim // num_heads
         else:
-            # Standard full-size projections: 4096 -> 4096
+            # Standard full-size projections: hidden_size -> hidden_size
             self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
             self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
             self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.o_proj = None  # 不需要额外的输出投影
+            self.o_proj = None  # no separate output projection needed
 
             # Use original dimensions
             self.effective_dim = hidden_size
             self.effective_head_dim = self.head_dim
 
-        # ========== 方案C：从 LLaMA Attention 层初始化 Q/K/V 投影 ==========
-        # 理论依据：
-        # 1. LLaMA 的 q_proj/k_proj/v_proj 是一起预训练的，有内在的"配对关系"
-        # 2. 从预训练权重初始化，Q 和 K 在同一个语义空间，初始 Q×K^T 有意义
-        # 3. 投影仍然是独立的参数，可以继续微调（不是冻结的！）
-        # 4. 这是 Warm Initialization，比随机初始化收敛更快
+        # Warm initialization from LLaMA pretrained Q/K/V weights
         if init_from_llama_attn is not None:
             rank = dist.get_rank() if dist.is_initialized() else 0
-            layer_idx = getattr(self, "layer_idx", 0)  # 获取当前层索引
+            layer_idx = getattr(self, "layer_idx", 0)
             with torch.no_grad():
                 self.q_proj.weight.copy_(init_from_llama_attn.q_proj.weight)
                 self.k_proj.weight.copy_(init_from_llama_attn.k_proj.weight)
                 self.v_proj.weight.copy_(init_from_llama_attn.v_proj.weight)
             if rank == 0 and layer_idx == 0:
                 print(
-                    f"✅ [方案C] Initialized Q/K/V projections from LLaMA pretrained weights"
+                    f"[LocalConstructorFlash] Initialized Q/K/V projections from LLaMA pretrained weights"
                 )
 
     def forward(self, hidden_states, attention_mask=None):
         """
-        Compute global context via Flash Attention cross-attention.
+        Compute local context via Flash Attention cross-attention.
 
-        使用 flash_attn_varlen_kvpacked_func 实现：
+        Uses flash_attn_varlen_kvpacked_func:
         - Q: query slots (no padding), fixed length = num_slots
-        - K/V: input sequence (可能有 padding), 使用 unpad_input 移除 padding
-
-        内存优势：
-        - 标准 matmul: O(num_slots × seq_len) 中间张量
-        - Flash Attention: O(1) 中间张量（分块计算）
+        - K/V: input sequence (potentially padded); padding removed via unpad_input
 
         Args:
             hidden_states: [bsz, seq_len, hidden_size] - full input sequence
             attention_mask: [bsz, seq_len] - 1 for valid, 0 for padding (optional)
 
         Returns:
-            global_context: [bsz, num_slots, hidden_size] - global summary
+            global_context: [bsz, num_slots, hidden_size] - local summary
         """
         bsz, seq_len, _ = hidden_states.shape
 
@@ -821,7 +540,7 @@ class LocalConstructorFlash(nn.Module):
             bsz, -1, -1
         )  # [bsz, num_slots, hidden_size]
 
-        # Cross-attention projections: 直接投影到目标维度 (bottleneck or full)
+        # Cross-attention projections: project to target dimension (bottleneck or full)
         Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, effective_dim]
         K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, effective_dim]
         V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, effective_dim]
@@ -834,26 +553,12 @@ class LocalConstructorFlash(nn.Module):
         V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
 
         if attention_mask is not None:
-            # region
-            # ========== 方案 B: Flash Attention + unpad (正确处理 padding) ==========
-            #
-            # 原理：
-            # 1. 用 unpad_input 移除 K/V 中的 padding tokens
-            # 2. Q (memory slots) 没有 padding，每个 batch 样本都是 num_slots 个
-            # 3. 使用 flash_attn_varlen_kvpacked_func 做变长 cross-attention
-            #
-            # 示例：
-            #   batch 0: 有效长度 500, padding 524
-            #   batch 1: 有效长度 800, padding 224
-            #
-            #   unpad 后 K/V: [500 + 800, num_heads, head_dim] = [1300, ...]
-            #   cu_seqlens_kv = [0, 500, 1300]
-            #
-            #   Q: [bsz * num_slots, num_heads, head_dim] = [32, ...] (假设 num_slots=16, bsz=2)
-            #   cu_seqlens_q = [0, 16, 32]
+            # Flash Attention + unpad (correct padding handling)
+            # 1. Remove padding tokens from K/V via unpad_input
+            # 2. Q (memory slots) has no padding — fixed num_slots per sample
+            # 3. Use flash_attn_varlen_kvpacked_func for variable-length cross-attention
 
             # Pack K and V together: [bsz, seq_len, 2, num_heads, head_dim]
-            # endregion
             kv = torch.stack([K_seq, V_seq], dim=2)
 
             # Reshape for unpad_input: [bsz, seq_len, 2 * num_heads * head_dim]
@@ -874,7 +579,7 @@ class LocalConstructorFlash(nn.Module):
             # Q has no padding, flatten: [bsz, num_slots, h, d] -> [bsz * num_slots, h, d]
             q_unpad = rearrange(Q_mem, "b s h d -> (b s) h d")
 
-            # cu_seqlens_q: 每个 batch 样本的 Q 长度都是 num_slots
+            # cu_seqlens_q: Q length per sample is always num_slots
             # e.g., bsz=2, num_slots=16 -> cu_seqlens_q = [0, 16, 32]
             cu_seqlens_q = torch.arange(
                 0,
@@ -884,7 +589,7 @@ class LocalConstructorFlash(nn.Module):
                 dtype=torch.int32,
             )
 
-            # Flash Attention 变长 cross-attention
+            # Flash Attention variable-length cross-attention
             # Q: [total_q, num_heads, effective_head_dim] where total_q = bsz * num_slots
             # KV: [total_kv, 2, num_heads, effective_head_dim] where total_kv = sum of valid lengths
             output_unpad = flash_attn_varlen_kvpacked_func(
@@ -892,11 +597,11 @@ class LocalConstructorFlash(nn.Module):
                 kv_unpad,  # [total_valid_kv, 2, num_heads, effective_head_dim]
                 cu_seqlens_q,  # [bsz + 1]
                 cu_seqlens_kv,  # [bsz + 1]
-                self.num_local_slots,  # max_seqlen_q (固定)
-                max_seqlen_kv,  # max_seqlen_kv (batch 中最长的有效长度)
+                self.num_local_slots,  # max_seqlen_q (fixed)
+                max_seqlen_kv,  # max_seqlen_kv (longest valid length in batch)
                 dropout_p=0.0,
-                softmax_scale=None,  # 默认 1/sqrt(head_dim)
-                causal=False,  # Cross-attention 不需要 causal mask
+                softmax_scale=None,  # default: 1/sqrt(head_dim)
+                causal=False,  # cross-attention does not use causal mask
             )
             # output_unpad: [bsz * num_slots, num_heads, effective_head_dim]
 
@@ -905,8 +610,7 @@ class LocalConstructorFlash(nn.Module):
                 output_unpad, "(b s) h d -> b s (h d)", b=bsz, s=self.num_local_slots
             )
         else:
-            # ========== 无 padding，使用简单的 flash_attn_func ==========
-            # 这是最高效的情况，直接使用 Flash Attention
+            # No padding: use the simpler flash_attn_func (most efficient path)
             global_context = flash_attn_func(
                 Q_mem,  # [bsz, num_slots, num_heads, effective_head_dim]
                 K_seq,  # [bsz, seq_len, num_heads, effective_head_dim]
@@ -929,377 +633,30 @@ class LocalConstructorFlash(nn.Module):
         return global_context
 
 
-# endregion ===========================================================================
-
-
-# 方法2   🆕 混合全局记忆 - ICML最佳方案（方案B：统计量 + Lightweight Attention）
-class GlobalIntegrator_ori(nn.Module):
-    """
-    GlobalIntegrator - statistics + Lightweight Attention
-
-    设计哲学：
-    1. ✅ 稳定性：统计量提供稳定的"锚点"（避免 attention 炸掉）
-    2. ✅ 理论性：Attention 学习如何 refine 统计特征（非启发式）
-    3. ✅ 高效性：Attention 在低维空间操作（5 × 512，极小！）
-    4. ✅ 参数量：13.4M/layer × 32 = 0.43B（比纯统计量版本少 34%）
-
-    理论对齐：
-    - Information Bottleneck:
-      • 统计量 = 粗粒化压缩（coarse-grained summary）
-      • Attention = 学习的 sufficient statistics refinement
-      • Capacity constraint via global_slots
-
-    - Predictive Coding:
-      • Global = high-level slow prior（EMA 慢更新）
-      • Attention = adaptive routing of information
-
-    - Renormalization Group:
-      • Step 1: Statistical aggregation（粗粒化）
-      • Step 2: Learned blocking transformation（精细化）
-
-    两阶段设计：
-        阶段1（稳定基础）：统计量压缩
-            local_memories: [bsz, N, 4096]
-            → 5种统计量: [mean, max, min, std, norm]
-            → 分离压缩: 每个 4096 → 512
-            → compressed_stats: [bsz, 5, 512]
-
-        阶段2（理论提升）：Lightweight Attention
-            global_queries: [global_slots, 512]  ← parameter
-            compressed_stats: [bsz, 5, 512]
-            → cross_attn in 512-dim space（极小！）
-            → G_compressed: [bsz, global_slots, 512]
-            → expand to 4096
-            → G: [bsz, global_slots, 4096]
-
-    关键优势：
-    1. Attention 只在 5 个统计量 × 512 维上操作（极小规模，风险低）
-    2. 统计量提供稳定的语义"锚点"
-    3. Attention 学习如何组合这些统计量（非启发式）
-    4. 即使 attention 出问题，统计量仍然能保底
-
-    参数量分析：
-        统计量压缩: 5 × (4096 × 512) = 10.5M
-        Q/K/V 投影: 3 × (512 × 512) = 0.8M
-        Expand: 512 × 4096 = 2.1M
-        Total: ~13.4M/layer × 32 = 0.43B
-
-    风险评估：
-        方案A（纯统计量）: 风险 0%  ✅✅✅
-        方案B（混合）:     风险 10% ✅✅  ← 推荐用于ICML
-        方案C（pure attn）:风险 40% ⚠️
-
-    论文叙述建议：
-    "We propose a hybrid approach that combines deterministic statistical
-     aggregation with learned attention-based refinement. First, we extract
-     five statistical features (mean, max, min, std, normalized mean) from
-     local memories and compress them to a 512-dim bottleneck space. Then,
-     global learned queries attend over these compressed statistics to
-     extract minimal sufficient statistics for document-level context.
-     This design provides both stability (via deterministic statistics)
-     and adaptivity (via learned attention)."
-    """
-
-    def __init__(
-        self,
-        hidden_size: int = 4096,
-        global_slots: int = 4,  # .sh脚本控制
-        compress_dim: int = 512,  # 统计量压缩维度 # 调用处控制
-        local_slots: int = 16,  # 兼容参数
-        use_bottleneck: bool = False,  # 兼容参数
-        bottleneck_dim: int = 4096,  # 兼容参数
-        init_from_embeddings=None,  # 调用处控制
-        use_high_norm_init: Optional[bool] = True,  # 调用处控制
-    ):
-        super().__init__()
-
-        self.hidden_size = hidden_size
-        self.num_global = global_slots
-        self.compress_dim = compress_dim
-        self.use_high_norm_init = use_high_norm_init  # 保存配置
-
-        # 阶段1：统计量分离压缩（和之前一样，稳定）
-        # 有归一化 LayerNorm
-        self.stat_compressors = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.Linear(hidden_size, compress_dim, bias=False),
-                    nn.LayerNorm(compress_dim),
-                )
-                for _ in range(5)  # mean, max, min, std, norm_mean
-            ]
-        )
-        # self.stat_compressors = nn.ModuleList(
-        #     [
-        #         nn.Linear(hidden_size, compress_dim, bias=False)
-        #         for _ in range(5)  # mean, max, min, std, norm_mean
-        #     ]
-        # )
-
-        # 阶段2：Lightweight Attention（理论提升）
-        # Global queries in compressed space  局部记忆使用torch.randn初始化
-        self.global_queries = nn.Parameter(torch.zeros(global_slots, compress_dim))
-
-        # Q/K/V 投影（都在 512 维空间）参数量：3 × (512 × 512) = 0.8M（很小！）
-        self.q_proj = nn.Linear(compress_dim, compress_dim, bias=False)
-        self.k_proj = nn.Linear(compress_dim, compress_dim, bias=False)
-        self.v_proj = nn.Linear(compress_dim, compress_dim, bias=False)
-
-        # 阶段3：扩展到 hidden_size
-        # self.expand = nn.Linear(compress_dim, hidden_size)
-        self.expand = nn.Linear(compress_dim, hidden_size, bias=False)
-        # LLaMA 风格初始化（关键！）
-        std_init = 0.02 / math.sqrt(compress_dim)  # ≈ 0.00088
-        nn.init.normal_(self.expand.weight, mean=0.0, std=std_init)
-        self.expand_scale = nn.Parameter(torch.tensor(0.1))  # 初始化为 0.1 新增
-
-        # ✅ EMA Buffer（Predictive Coding - 作为长期先验）
-        # 用途：为 global queries 提供稳定的初始化偏置
-        self.register_buffer("ema_global", torch.zeros(1, global_slots, hidden_size))
-        self.ema_decay = 0.95
-        self.ema_weight = 0.1  # EMA 对 queries 的影响权重
-
-        # 🚀 性能优化：缓存压缩后的 EMA（避免每次 forward 都重新计算）
-        self.register_buffer(
-            "ema_compressed_cache", torch.zeros(global_slots, compress_dim)
-        )
-        self._ema_cache_valid = False  # 标记缓存是否有效
-
-        # 🚀 性能优化：缓存 compressor 引用（避免运行时类型检查）
-        self._first_compressor = None  # 将在 _init_weights 中设置
-
-        # 初始化
-        self._init_weights(
-            init_from_embeddings, use_high_norm_init=self.use_high_norm_init
-        )
-
-        # 打印信息
-        layer_idx = getattr(self, "layer_idx", 0)  # 获取当前层索引
-        rank = dist.get_rank() if dist.is_initialized() else 0
-        if rank == 0 and layer_idx == 0:
-            total_params = sum(p.numel() for p in self.parameters())
-            print(f"    ✅ GlobalIntegrator initialized (方案B - ICML推荐)")
-            print(f"       - Design: Statistical Aggregation + Lightweight Attention")
-            print(f"       - Global slots: {global_slots} (IB capacity)")
-            print(f"       - Compress dim: {compress_dim}")
-            print(f"       - Attention space: 5 × {compress_dim} (极小！)")
-            print(
-                f"       - Params/layer: {total_params:,} ({total_params / 1e6:.1f}M)"
-            )
-            print(
-                f"       - 32 layers: {total_params * 32:,} ({total_params * 32 / 1e9:.2f}B)"
-            )
-            print(f"       - Theory: IB + Predictive Coding + RG")
-            print(f"       - Stability: ✅✅✅ 极高（attention 在低维空间）")
-
-    def _init_weights(self, embed_weight, use_high_norm_init=False):
-        """初始化 global queries
-
-        Args:
-            embed_weight: 预训练的 embedding 权重 [vocab_size, hidden_size]
-            use_high_norm_init: 是否使用高范数初始化（实验性功能）
-        """
-        # 🚀 性能优化：缓存第一个 compressor（避免运行时类型检查）
-        if isinstance(self.stat_compressors[0], nn.Sequential):
-            self._first_compressor = self.stat_compressors[0][0]
-        else:
-            self._first_compressor = self.stat_compressors[0]
-
-        if embed_weight is not None:
-            with torch.no_grad():
-                # 从 embeddings 采样并压缩到 compress_dim
-                if use_high_norm_init:
-                    # ✅ 实验：选择高范数嵌入
-                    # 理由：高频词 norm 大，语义覆盖广，初始梯度可能更健康
-                    embed_norms = torch.norm(embed_weight, dim=-1)  # [vocab_size]
-                    _, top_indices = torch.topk(embed_norms, k=self.num_global)
-                    indices = top_indices
-                else:
-                    # ❌ 原版：随机采样 # 优点：无偏，探索性强
-                    indices = torch.randperm(embed_weight.size(0))[: self.num_global]
-
-                init_embeddings = embed_weight[indices]  # [global_slots, 4096]
-
-                init_embeddings = init_embeddings.to(
-                    self._first_compressor.weight.dtype
-                )
-
-                # 用第一个 stat compressor 压缩
-                # （这样 queries 和统计量在同一空间）
-                init_compressed = self._first_compressor(
-                    init_embeddings
-                )  # [global_slots, 512]
-                self.global_queries.copy_(init_compressed)
-
-                # EMA 用完整的 embedding
-                self.ema_global.copy_(init_embeddings.unsqueeze(0))
-
-                # 🚀 性能优化：初始化 EMA 压缩缓存
-                self.ema_compressed_cache.copy_(init_compressed)
-                self._ema_cache_valid = True
-        else:
-            nn.init.xavier_uniform_(self.global_queries)
-
-    def forward(self, local_memories):
-        """
-        两阶段前向传播
-
-        Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
-
-        Returns:
-            G: [bsz, global_slots, hidden_size]
-        """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
-
-        # 阶段1：统计量压缩（稳定基础）
-        # Flatten: [bsz, num_chunks * local_slots, hidden_size]
-        all_local_flat = local_memories.view(bsz, -1, hidden_size)
-
-        # 计算 5 种统计量
-        mean_pool = all_local_flat.mean(dim=1)  # [bsz, 4096]
-        max_pool, _ = all_local_flat.max(dim=1)  # [bsz, 4096]
-        min_pool, _ = all_local_flat.min(dim=1)  # [bsz, 4096]
-        std_pool = all_local_flat.std(dim=1)  # [bsz, 4096]
-        norm_mean = F.normalize(mean_pool, dim=-1, p=2)  # [bsz, 4096]
-
-        # 分离压缩：每个统计量 4096 → 512
-        stats_list = [mean_pool, max_pool, min_pool, std_pool, norm_mean]
-        compressed_stats = [
-            self.stat_compressors[i](stat) for i, stat in enumerate(stats_list)
-        ]
-
-        # Stack: [bsz, 5, 512]
-        stats_stacked = torch.stack(compressed_stats, dim=1)
-
-        # 阶段2：Lightweight Attention（理论提升）
-        # Q: [bsz, global_slots, 512]
-        # ✅ 融合 EMA 长期先验（Predictive Coding）
-        # global_queries: 学习的、动态的查询
-        # ema_global: 慢变的、稳定的先验
-        Q = self.global_queries.unsqueeze(0).expand(bsz, -1, -1)
-
-        # 🚀 性能优化3：使用缓存的 EMA 压缩结果（避免每次 forward 都重新压缩）
-        if hasattr(self, "ema_global") and hasattr(self, "ema_weight"):
-            # 使用缓存的压缩结果（在 EMA 更新时才重新压缩）
-            if self._ema_cache_valid:
-                ema_compressed = self.ema_compressed_cache.unsqueeze(0).expand(
-                    bsz, -1, -1
-                )
-            else:
-                # 缓存失效，重新压缩（只在首次或缓存失效时执行）
-                ema_compressed = self._first_compressor(self.ema_global.squeeze(0))
-                self.ema_compressed_cache.copy_(ema_compressed)
-                self._ema_cache_valid = True
-                ema_compressed = ema_compressed.unsqueeze(0).expand(bsz, -1, -1)
-
-            # 加权融合：Q = learned + α * prior
-            Q = (
-                Q + self.ema_weight * ema_compressed.detach()
-            )  # detach 避免影响 EMA 的梯度
-
-        # 投影到 attention 空间
-        Q = self.q_proj(Q)
-
-        # K, V: [bsz, 5, 512]
-        K = self.k_proj(stats_stacked)
-        V = self.v_proj(stats_stacked)
-
-        # Scaled dot-product attention
-        scale = self.compress_dim**-0.5
-        attn_weights = torch.matmul(Q, K.transpose(-2, -1)) * scale
-        # [bsz, global_slots, 5]
-
-        attn_probs = F.softmax(attn_weights, dim=-1)
-
-        # Weighted sum
-        G_compressed = torch.matmul(attn_probs, V)
-        # [bsz, global_slots, 512]
-
-        # 阶段3：扩展到 hidden_size zxy
-        # G = self.expand(G_compressed)  # [bsz, global_slots, 4096]
-        G = self.expand(G_compressed) * self.expand_scale
-
-        # 🚀 性能优化4：EMA 更新时使缓存失效
-        if self.training:
-            with torch.no_grad():
-                batch_mean_G = G.mean(dim=0, keepdim=True)
-                self.ema_global.copy_(
-                    self.ema_decay * self.ema_global
-                    + (1 - self.ema_decay) * batch_mean_G
-                )
-                # 使 EMA 压缩缓存失效（下次 forward 时重新压缩）
-                self._ema_cache_valid = False
-
-        return G
-
-
-# 方法3   🆕 混合全局记忆 - ICML最佳方案（方案B：统计量 + Lightweight Attention）
+# ============================================================================
+# GlobalIntegrator_new — statistical aggregation + lightweight attention
+# ============================================================================
 class GlobalIntegrator_new(nn.Module):
     """
-    GlobalIntegrator - statistics + Lightweight Attention
+    GlobalIntegrator with EMA prior (statistics + lightweight attention).
 
-    设计哲学：
-    1. ✅ 稳定性：统计量提供稳定的"锚点"（避免 attention 炸掉）
-    2. ✅ 理论性：Attention 学习如何 refine 统计特征（非启发式）
-    3. ✅ 高效性：Attention 在低维空间操作（5 × 512，极小！）
-    4. ✅ 参数量：13.4M/layer × 32 = 0.43B（比纯统计量版本少 34%）
+    Two-stage design:
+        Stage 1 (stable foundation): statistical compression
+            local_memories: [bsz, N, hidden_size]
+            -> 5 statistics: [mean, max, min, std, norm_mean]
+            -> separate compressors: each hidden_size -> compress_dim
+            -> compressed_stats: [bsz, 5, compress_dim]
 
-    理论对齐：
-    - Information Bottleneck:
-      • 统计量 = 粗粒化压缩（coarse-grained summary）
-      • Attention = 学习的 sufficient statistics refinement
-      • Capacity constraint via global_slots
+        Stage 2 (learned refinement): lightweight attention
+            global_queries: [global_slots, compress_dim]  (learnable)
+            compressed_stats: [bsz, 5, compress_dim]
+            -> cross-attention in compress_dim space
+            -> G_compressed: [bsz, global_slots, compress_dim]
+            -> expand to hidden_size
+            -> G: [bsz, global_slots, hidden_size]
 
-    - Predictive Coding:
-      • Global = high-level slow prior（EMA 慢更新）
-      • Attention = adaptive routing of information
-
-    - Renormalization Group:
-      • Step 1: Statistical aggregation（粗粒化）
-      • Step 2: Learned blocking transformation（精细化）
-
-    两阶段设计：
-        阶段1（稳定基础）：统计量压缩
-            local_memories: [bsz, N, 4096]
-            → 5种统计量: [mean, max, min, std, norm]
-            → 分离压缩: 每个 4096 → 512
-            → compressed_stats: [bsz, 5, 512]
-
-        阶段2（理论提升）：Lightweight Attention
-            global_queries: [global_slots, 512]  ← parameter
-            compressed_stats: [bsz, 5, 512]
-            → cross_attn in 512-dim space（极小！）
-            → G_compressed: [bsz, global_slots, 512]
-            → expand to 4096
-            → G: [bsz, global_slots, 4096]
-
-    关键优势：
-    1. Attention 只在 5 个统计量 × 512 维上操作（极小规模，风险低）
-    2. 统计量提供稳定的语义"锚点"
-    3. Attention 学习如何组合这些统计量（非启发式）
-    4. 即使 attention 出问题，统计量仍然能保底
-
-    参数量分析：
-        统计量压缩: 5 × (4096 × 512) = 10.5M
-        Q/K/V 投影: 3 × (512 × 512) = 0.8M
-        Expand: 512 × 4096 = 2.1M
-        Total: ~13.4M/layer × 32 = 0.43B
-
-    风险评估：
-        方案A（纯统计量）: 风险 0%  ✅✅✅
-        方案B（混合）:     风险 10% ✅✅  ← 推荐用于ICML
-        方案C（pure attn）:风险 40% ⚠️
-
-    论文叙述建议：
-    "We propose a hybrid approach that combines deterministic statistical
-     aggregation with learned attention-based refinement. First, we extract
-     five statistical features (mean, max, min, std, normalized mean) from
-     local memories and compress them to a 512-dim bottleneck space. Then,
-     global learned queries attend over these compressed statistics to
-     extract minimal sufficient statistics for document-level context.
-     This design provides both stability (via deterministic statistics)
-     and adaptivity (via learned attention)."
+    Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
+    Output: G              [bsz, global_slots, hidden_size]
     """
 
     _init_msg_printed = False
@@ -1307,23 +664,22 @@ class GlobalIntegrator_new(nn.Module):
     def __init__(
         self,
         hidden_size: int = 4096,
-        global_slots: int = 4,  # .sh脚本控制
-        compress_dim: int = 512,  # 统计量压缩维度 # 调用处控制
-        local_slots: int = 16,  # 兼容参数
-        use_bottleneck: bool = False,  # 兼容参数
-        bottleneck_dim: int = 4096,  # 兼容参数
-        init_from_embeddings=None,  # 调用处控制
-        use_high_norm_init: Optional[bool] = True,  # 调用处控制
+        global_slots: int = 4,
+        compress_dim: int = 512,
+        local_slots: int = 16,  # compatibility parameter
+        use_bottleneck: bool = False,  # compatibility parameter
+        bottleneck_dim: int = 4096,  # compatibility parameter
+        init_from_embeddings=None,
+        use_high_norm_init: Optional[bool] = True,
     ):
         super().__init__()
 
         self.hidden_size = hidden_size
         self.num_global = global_slots
         self.compress_dim = compress_dim
-        self.use_high_norm_init = use_high_norm_init  # 保存配置
+        self.use_high_norm_init = use_high_norm_init
 
-        # 阶段1：统计量分离压缩（和之前一样，稳定）
-        # 有归一化 LayerNorm
+        # Stage 1: separate statistical compressors (with LayerNorm for stability)
         self.stat_compressors = nn.ModuleList(
             [
                 nn.Sequential(
@@ -1340,39 +696,35 @@ class GlobalIntegrator_new(nn.Module):
         #     ]
         # )
 
-        # 阶段2：Lightweight Attention（理论提升）
-        # Global queries in compressed space  局部记忆使用torch.randn初始化
+        # Stage 2: lightweight attention in compressed space
         self.global_queries = nn.Parameter(torch.zeros(global_slots, compress_dim))
 
-        # Q/K/V 投影（都在 512 维空间）参数量：3 × (512 × 512) = 0.8M（很小！）
+        # Q/K/V projections in compressed space
         self.q_proj = nn.Linear(compress_dim, compress_dim, bias=False)
         self.k_proj = nn.Linear(compress_dim, compress_dim, bias=False)
         self.v_proj = nn.Linear(compress_dim, compress_dim, bias=False)
 
-        # 阶段3：扩展到 hidden_size
-        # self.expand = nn.Linear(compress_dim, hidden_size)
+        # Stage 3: expand to hidden_size
         self.expand = nn.Linear(compress_dim, hidden_size, bias=False)
-        # LLaMA 风格初始化（关键！）
-        std_init = 0.02 / math.sqrt(compress_dim)  # ≈ 0.00088
+        std_init = 0.02 / math.sqrt(compress_dim)
         nn.init.normal_(self.expand.weight, mean=0.0, std=std_init)
-        self.expand_scale = nn.Parameter(torch.tensor(0.1))  # 初始化为 0.1 新增
+        self.expand_scale = nn.Parameter(torch.tensor(0.1))
 
-        # ✅ EMA Buffer（Predictive Coding - 作为长期先验）
-        # 用途：为 global queries 提供稳定的初始化偏置
+        # EMA buffer (long-term prior for global queries)
         self.register_buffer("ema_global", torch.zeros(1, global_slots, hidden_size))
         self.ema_decay = 0.95
-        self.ema_weight = 0.1  # EMA 对 queries 的影响权重
+        self.ema_weight = 0.1  # EMA influence weight on queries
 
-        # 🚀 性能优化：缓存压缩后的 EMA（避免每次 forward 都重新计算）
+        # Cache compressed EMA to avoid recomputing every forward pass
         self.register_buffer(
             "ema_compressed_cache", torch.zeros(global_slots, compress_dim)
         )
-        self._ema_cache_valid = False  # 标记缓存是否有效
+        self._ema_cache_valid = False  # marks whether the cache is valid
 
-        # 🚀 性能优化：缓存 compressor 引用（避免运行时类型检查）
-        self._first_compressor = None  # 将在 _init_weights 中设置
+        # Cache first compressor reference (set in _init_weights)
+        self._first_compressor = None
 
-        # 初始化
+        # Initialize weights
         self._init_weights(
             init_from_embeddings, use_high_norm_init=self.use_high_norm_init
         )
@@ -1380,63 +732,53 @@ class GlobalIntegrator_new(nn.Module):
         rank = dist.get_rank() if dist.is_initialized() else 0
         if rank == 0 and not GlobalIntegrator_new._init_msg_printed:
             total_params = sum(p.numel() for p in self.parameters())
-            print(f"   ✅ GlobalIntegrator_NEW initialized (方案B - ICML推荐)")
+            print(f"   GlobalIntegrator_new initialized")
             print(f"       - Design: Statistical Aggregation + Lightweight Attention")
-            print(f"       - Global slots: {global_slots} (IB capacity)")
+            print(f"       - Global slots: {global_slots}")
             print(f"       - Compress dim: {compress_dim}")
-            print(f"       - Attention space: 5 × {compress_dim} (极小！)")
             print(
                 f"       - Params/layer: {total_params:,} ({total_params / 1e6:.1f}M)"
             )
             print(
                 f"       - 32 layers: {total_params * 32:,} ({total_params * 32 / 1e9:.2f}B)"
             )
-            print(f"       - Theory: IB + Predictive Coding + RG")
-            print(f"       - Stability: ✅极高（attention 在低维空间）")
             GlobalIntegrator_new._init_msg_printed = True
 
     def _init_weights(self, embed_weight, use_high_norm_init=False):
-        """初始化 global queries
+        """Initialize global queries.
 
         Args:
-            embed_weight: 预训练的 embedding 权重 [vocab_size, hidden_size]
-            use_high_norm_init: 是否使用高范数初始化（实验性功能）
+            embed_weight: pretrained embedding weights [vocab_size, hidden_size]
+            use_high_norm_init: whether to select high-norm embeddings for initialization
         """
-        # 🚀 性能优化：缓存第一个 compressor（避免运行时类型检查）
-        # ✅ 修复 Issue A (P0): 缓存完整序列（Linear+LayerNorm），确保 EMA 和统计量使用相同的归一化流程
-        # 原问题：只缓存 Linear 导致 ema_compressed 无归一化，尺度可能是 stats 的 5-10 倍，污染 Q → Softmax 崩溃
+        # Cache the full compressor (Linear+LayerNorm) so EMA and stats use the same normalization
         self._first_compressor = self.stat_compressors[0]
 
         if embed_weight is not None:
             with torch.no_grad():
-                # 从 embeddings 采样并压缩到 compress_dim
                 if use_high_norm_init:
-                    # ✅ 实验：选择高范数嵌入
-                    # 理由：高频词 norm 大，语义覆盖广，初始梯度可能更健康
                     embed_norms = torch.norm(embed_weight, dim=-1)  # [vocab_size]
                     _, top_indices = torch.topk(embed_norms, k=self.num_global)
                     indices = top_indices
                 else:
-                    # ❌ 原版：随机采样 # 优点：无偏，探索性强
                     indices = torch.randperm(embed_weight.size(0))[: self.num_global]
 
-                init_embeddings = embed_weight[indices]  # [global_slots, 4096]
+                init_embeddings = embed_weight[indices]  # [global_slots, hidden_size]
 
                 init_embeddings = init_embeddings.to(
                     self._first_compressor[0].weight.dtype
                 )
 
-                # 用第一个 stat compressor 压缩
-                # （这样 queries 和统计量在同一空间）
+                # Compress using the first stat compressor (queries and stats in the same space)
                 init_compressed = self._first_compressor(
                     init_embeddings
-                )  # [global_slots, 512]
+                )  # [global_slots, compress_dim]
                 self.global_queries.copy_(init_compressed)
 
-                # EMA 用完整的 embedding
+                # EMA uses the full embedding
                 self.ema_global.copy_(init_embeddings.unsqueeze(0))
 
-                # 🚀 性能优化：初始化 EMA 压缩缓存
+                # Initialize EMA compressed cache
                 self.ema_compressed_cache.copy_(init_compressed)
                 self._ema_cache_valid = True
         else:
@@ -1444,7 +786,7 @@ class GlobalIntegrator_new(nn.Module):
 
     def forward(self, local_memories):
         """
-        两阶段前向传播
+        Two-stage forward pass.
 
         Args:
             local_memories: [bsz, num_chunks, local_slots, hidden_size]
@@ -1454,62 +796,55 @@ class GlobalIntegrator_new(nn.Module):
         """
         bsz, num_chunks, local_slots, hidden_size = local_memories.shape
 
-        # 阶段1：统计量压缩（稳定基础）
+        # ========== Stage 1: statistical compression ==========
         # Flatten: [bsz, num_chunks * local_slots, hidden_size]
         all_local_flat = local_memories.reshape(bsz, -1, hidden_size)
 
-        # 计算 5 种统计量
-        mean_pool = all_local_flat.mean(dim=1)  # [bsz, 4096]
-        max_pool, _ = all_local_flat.max(dim=1)  # [bsz, 4096]
-        min_pool, _ = all_local_flat.min(dim=1)  # [bsz, 4096]
+        # Compute 5 statistics
+        mean_pool = all_local_flat.mean(dim=1)
+        max_pool, _ = all_local_flat.max(dim=1)
+        min_pool, _ = all_local_flat.min(dim=1)
 
-        # ✅ 修复 Issue B (P1): std 使用 fp32 精度和 unbiased=False，避免 bf16 数值不稳定
-        # 原问题：bf16 下 std 计算有舍入误差，unbiased=True 除以 n-1 可能导致不稳定
+        # Compute std in fp32 for numerical stability
         with torch.cuda.amp.autocast(enabled=False):
             std_pool = all_local_flat.float().std(dim=1, unbiased=False)
-        std_pool = std_pool.to(all_local_flat.dtype)  # [bsz, 4096]
+        std_pool = std_pool.to(all_local_flat.dtype)
 
-        norm_mean = F.normalize(mean_pool, dim=-1, p=2)  # [bsz, 4096]
+        norm_mean = F.normalize(mean_pool, dim=-1, p=2)
 
-        # 分离压缩：每个统计量 4096 → 512
+        # Separate compression: each statistic hidden_size -> compress_dim
         stats_list = [mean_pool, max_pool, min_pool, std_pool, norm_mean]
         compressed_stats = [
             self.stat_compressors[i](stat) for i, stat in enumerate(stats_list)
         ]
 
-        # Stack: [bsz, 5, 512]
+        # Stack: [bsz, 5, compress_dim]
         stats_stacked = torch.stack(compressed_stats, dim=1)
 
-        # 阶段2：Lightweight Attention（理论提升）
-        # Q: [bsz, global_slots, 512]
-        # ✅ 融合 EMA 长期先验（Predictive Coding）
-        # global_queries: 学习的、动态的查询
-        # ema_global: 慢变的、稳定的先验
+        # ========== Stage 2: lightweight attention ==========
+        # Q: [bsz, global_slots, compress_dim]
         Q = self.global_queries.unsqueeze(0).expand(bsz, -1, -1)
 
-        # 🚀 性能优化3：使用缓存的 EMA 压缩结果（避免每次 forward 都重新压缩）
+        # Blend in EMA long-term prior using cached compressed result
         if hasattr(self, "ema_global") and hasattr(self, "ema_weight"):
-            # 使用缓存的压缩结果（在 EMA 更新时才重新压缩）
             if self._ema_cache_valid:
                 ema_compressed = self.ema_compressed_cache.unsqueeze(0).expand(
                     bsz, -1, -1
                 )
             else:
-                # 缓存失效，重新压缩（只在首次或缓存失效时执行）
+                # Cache miss: recompress (only happens after EMA update)
                 ema_compressed = self._first_compressor(self.ema_global.squeeze(0))
                 self.ema_compressed_cache.copy_(ema_compressed)
                 self._ema_cache_valid = True
                 ema_compressed = ema_compressed.unsqueeze(0).expand(bsz, -1, -1)
 
-            # 加权融合：Q = learned + α * prior
-            Q = (
-                Q + self.ema_weight * ema_compressed.detach()
-            )  # detach 避免影响 EMA 的梯度
+            # Weighted blend: Q = learned + alpha * prior (detach EMA from gradient)
+            Q = Q + self.ema_weight * ema_compressed.detach()
 
-        # 投影到 attention 空间
+        # Project to attention space
         Q = self.q_proj(Q)
 
-        # K, V: [bsz, 5, 512]
+        # K, V: [bsz, 5, compress_dim]
         K = self.k_proj(stats_stacked)
         V = self.v_proj(stats_stacked)
 
@@ -1522,63 +857,39 @@ class GlobalIntegrator_new(nn.Module):
 
         # Weighted sum
         G_compressed = torch.matmul(attn_probs, V)
-        # [bsz, global_slots, 512]
+        # [bsz, global_slots, compress_dim]
 
-        # 阶段3：扩展到 hidden_size zxy
-        # G = self.expand(G_compressed)  # [bsz, global_slots, 4096]
-        G_unscaled = self.expand(G_compressed)  # [bsz, global_slots, 4096]
-        G = G_unscaled * self.expand_scale  # 输出用于后续计算
+        # ========== Stage 3: expand to hidden_size ==========
+        G_unscaled = self.expand(G_compressed)  # [bsz, global_slots, hidden_size]
+        G = G_unscaled * self.expand_scale
 
-        # 🚀 性能优化4：EMA 更新时使缓存失效
+        # EMA update during training; invalidate compressed cache
         if self.training:
             with torch.no_grad():
-                # ✅ 修复 Issue E (P0): EMA 更新使用未缩放的 G，避免 expand_scale 动态变化污染 EMA
-                # 原问题：expand_scale 从 0.1→0.15 时，EMA 累积不同尺度的值 → ema_compressed 失控 → Q 被劫持 → 正反馈崩溃
+                # Use unscaled G to avoid expand_scale changes corrupting EMA
                 batch_mean_G = G_unscaled.mean(dim=0, keepdim=True)
                 self.ema_global.copy_(
                     self.ema_decay * self.ema_global
                     + (1 - self.ema_decay) * batch_mean_G
                 )
-                # 使 EMA 压缩缓存失效（下次 forward 时重新压缩）
                 self._ema_cache_valid = False
 
         return G
 
 
-# 方法3.1  🆕 混合全局记忆 - 简化版（无 EMA） Clean版本
+# ============================================================================
+# GlobalIntegrator — simplified variant (no EMA)
+# ============================================================================
 class GlobalIntegrator(nn.Module):
     """
-    GlobalIntegrator - simplified version (no EMA)
+    GlobalIntegrator — statistical aggregation + multi-head attention (no EMA).
 
-    相比 GlobalIntegrator 的改进：
-    1. 移除 EMA 机制（概念上有争议，效果可能不显著）
-    2. 更模块化的代码结构
-    3. 支持多头注意力 + Output Projection
-    4. 更清晰的数据流
-    5. 数值稳定性保护
+    Two-stage design:
+        Stage 1: extract 5 statistics from local memories, compress to compress_dim
+        Stage 2: global learned queries attend over compressed statistics
 
-    核心设计保留：
-    - 两阶段压缩：统计量提取 → Attention 精炼
-    - 信息瓶颈：通过 compress_dim 控制容量
-    - 多统计量融合：mean, max, min, std, norm_mean
-
-    论文叙述：
-    "We propose a hybrid approach combining deterministic statistical
-     aggregation with learned attention-based refinement. First, we extract
-     five statistical features from local memories and compress them to a
-     low-dimensional bottleneck space. Then, global learned queries attend
-     over these compressed statistics to extract document-level context."
-
-    输入输出：
-        Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
-        Output: global_context  [bsz, global_slots, hidden_size]
-
-    参数量（hidden_size=4096, compress_dim=512, global_slots=4）：
-        统计量压缩: 5 × (4096 × 512 + 512) ≈ 10.5M
-        Q/K/V 投影: 3 × (512 × 512) = 0.8M
-        O 投影:     512 × 512 = 0.26M
-        扩展层:     512 × 4096 = 2.1M
-        总计:       ~13.7M / layer
+    Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
+    Output: global_context  [bsz, global_slots, hidden_size]
     """
 
     _init_msg_printed = False
@@ -2301,1124 +1612,6 @@ class GlobalIntegratorShared(nn.Module):
         G = self.expand(G_compressed) * self.expand_scale  # [BN, global_slots, H]
         G = G.view(bsz, num_chunks, self.global_slots, hidden_size)
         return G
-
-
-# 训练代码===========================================================================
-# 原本longlora代码
-def forward_flashattn_ori(
-    self,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.Tensor] = None,
-    past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    padding_mask: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """Input shape: Batch x Time x Channel
-
-    attention_mask: [bsz, q_len]
-    """
-    if not self.training:
-        warnings.warn(
-            "This function should be used just for training as it may exhibit reduced inference performance. For inference, please use forward_flashattn_inference."
-        )
-
-    if output_attentions:
-        warnings.warn(
-            "Output attentions is not supported for patched `LlamaAttention`, returning `None` instead."
-        )
-
-    bsz, q_len, _ = hidden_states.size()
-
-    query_states = (
-        self.q_proj(hidden_states)
-        .view(bsz, q_len, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    key_states = (
-        self.k_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    value_states = (
-        self.v_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    # [bsz, q_len, nh, hd]
-    # [bsz, nh, q_len, hd]
-
-    kv_seq_len = key_states.shape[-2]
-    if past_key_value is not None:
-        kv_seq_len += past_key_value[0].shape[-2]
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-    query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
-    )
-
-    # Past Key value support
-    if past_key_value is not None:
-        # reuse k, v, self_attention
-        key_states = torch.cat([past_key_value[0], key_states], dim=2)
-        value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-    past_key_value = (key_states, value_states) if use_cache else None
-
-    # repeat k/v heads if n_kv_heads < n_heads
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-    # Flash attention codes from
-    # https://github.com/HazyResearch/flash-attention/blob/main/flash_attn/flash_attention.py
-
-    # transform the data into the format required by flash attention
-    qkv = torch.stack(
-        [query_states, key_states, value_states], dim=2
-    )  # [bsz, nh, 3, q_len, hd]
-    qkv = qkv.transpose(1, 3)  # [bsz, q_len, 3, nh, hd]
-
-    # We have disabled _prepare_decoder_attention_mask in LlamaModel
-    # the attention_mask should be the same as the key_padding_mask
-
-    key_padding_mask = attention_mask.repeat(2, 1)
-    nheads = qkv.shape[-2]
-    # shift
-
-    group_size = int(q_len * group_size_ratio)
-    if q_len % group_size > 0:
-        raise ValueError(
-            "q_len %d should be divisible by group size %d." % (q_len, group_size)
-        )
-
-    qkv = (
-        qkv.reshape(bsz, q_len, 3, 2, self.num_heads // 2, self.head_dim)
-        .permute(0, 3, 1, 2, 4, 5)
-        .reshape(bsz * 2, q_len, 3, self.num_heads // 2, self.head_dim)
-    )
-    x = rearrange(qkv, "b s three h d -> b s (three h d)")
-    x_unpad, indices, cu_q_lens, max_s = unpad_input(x, key_padding_mask)
-    cu_q_len_tmp = torch.arange(
-        0, max_s, group_size, device=key_padding_mask.device, dtype=cu_q_lens.dtype
-    )
-    cu_q_len_tmp = torch.stack([cu_q_len_tmp, cu_q_len_tmp + group_size // 2]).repeat(
-        bsz, 1
-    ) + cu_q_lens[:-1].unsqueeze(-1)
-    cu_q_lens = torch.cat([cu_q_len_tmp, cu_q_lens[1:].unsqueeze(-1)], dim=-1).view(-1)
-
-    x_unpad = rearrange(
-        x_unpad, "nnz (three h d) -> nnz three h d", three=3, h=nheads // 2
-    )
-    output_unpad = flash_attn_varlen_qkvpacked_func(
-        x_unpad, cu_q_lens, group_size, 0.0, softmax_scale=None, causal=True
-    )
-    output = rearrange(
-        pad_input(
-            rearrange(output_unpad, "nnz h d -> nnz (h d)"), indices, bsz * 2, q_len
-        ),
-        "b s (h d) -> b s h d",
-        h=nheads // 2,
-    )
-    output = (
-        output.reshape(bsz, 2, q_len, nheads // 2, self.head_dim)
-        .transpose(1, 2)
-        .reshape(bsz, q_len, nheads, self.head_dim)
-    )
-
-    return self.o_proj(rearrange(output, "b s h d -> b s (h d)")), None, past_key_value
-
-
-# 训练way1  只有全局记忆的版本  最初版 没有cache  没有高层记忆
-# region ===========================================================================
-def forward_flashattn(
-    self,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.Tensor] = None,
-    past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    padding_mask: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """Input shape: Batch x Time x Channel
-
-    NEW: Uses HiCI global context + cross-attention instead of shift operation.
-    Benefits:
-    - No data duplication (1x computation vs 2x in original)
-    - Direct global context injection before each chunk
-    - O(M×N + N) complexity where M=num_local_slots (16), N=seq_len
-
-    attention_mask: [bsz, q_len]
-    """
-    if not self.training:
-        warnings.warn(
-            "This function should be used just for training as it may exhibit reduced inference performance. For inference, please use forward_flashattn_inference."
-        )
-
-    if output_attentions:
-        warnings.warn(
-            "Output attentions is not supported for patched `LlamaAttention`, returning `None` instead."
-        )
-
-    bsz, q_len, _ = hidden_states.size()
-
-    # ========== Step 1: Compute global context (NEW!) ==========
-    # This captures document-level information before chunking
-    # Note: self.local_constructor is registered via replace_llama_attn()
-    # 传入 attention_mask 以正确处理 padding tokens  flash版本才传入attention_mask
-    global_context = self.local_constructor(
-        hidden_states, attention_mask
-    )  # [bsz, num_slots, hidden_size]
-    # global_context = self.local_constructor(hidden_states)  # [bsz, num_slots, hidden_size]
-
-    num_local_slots = global_context.shape[1]
-
-    # ========== Step 2: Standard Q/K/V projections (unchanged) ==========
-    query_states = (
-        self.q_proj(hidden_states)
-        .view(bsz, q_len, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    key_states = (
-        self.k_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    value_states = (
-        self.v_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    # [bsz, nh, q_len, hd]
-
-    kv_seq_len = key_states.shape[-2]
-    if past_key_value is not None:
-        kv_seq_len += past_key_value[0].shape[-2]
-
-    # if position_ids is not None:
-    #     max_pos = position_ids.max().item() + 1
-    #     rope_seq_len = max(kv_seq_len, max_pos)
-    # else:
-    #     rope_seq_len = kv_seq_len
-
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-    query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
-    )
-
-    # Past Key value support
-    if past_key_value is not None:
-        # reuse k, v, self_attention
-        key_states = torch.cat([past_key_value[0], key_states], dim=2)
-        value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-    past_key_value = (key_states, value_states) if use_cache else None
-
-    # repeat k/v heads if n_kv_heads < n_heads
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
-
-    # ========== Step 3: Inject global context into Q/K/V (NEW!) ==========
-    # Convert global_context to Q/K/V format and prepend to each chunk
-
-    # Project global context through Q/K/V projections
-    global_q = (
-        self.q_proj(global_context)
-        .view(bsz, num_local_slots, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )  # [bsz, nh, num_slots, hd]
-    global_k = (
-        self.k_proj(global_context)
-        .view(bsz, num_local_slots, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    global_v = (
-        self.v_proj(global_context)
-        .view(bsz, num_local_slots, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-
-    # Repeat k/v heads for global context
-    global_k = repeat_kv(global_k, self.num_key_value_groups)
-    global_v = repeat_kv(global_v, self.num_key_value_groups)
-
-    # ========== Step 4: Prepare chunked attention with global prefix (NEW!) ==========
-    group_size = int(q_len * group_size_ratio)
-    if q_len % group_size > 0:
-        raise ValueError(
-            "q_len %d should be divisible by group size %d." % (q_len, group_size)
-        )
-
-    num_groups = q_len // group_size
-
-    # For each chunk, prepend global context: [global_ctx, chunk]
-    # This gives each chunk access to document-level information
-
-    # Reshape query/key/value into chunks
-    query_chunks = query_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    key_chunks = key_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    value_chunks = value_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-
-    # Expand global context for each chunk
-    global_q_expanded = global_q.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-    global_k_expanded = global_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-    global_v_expanded = global_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-
-    # Concatenate: [global_ctx, chunk] for each chunk
-    query_with_ctx = torch.cat(
-        [global_q_expanded, query_chunks], dim=3
-    )  # [bsz, nh, num_groups, num_slots+group_size, hd]
-    key_with_ctx = torch.cat([global_k_expanded, key_chunks], dim=3)
-    value_with_ctx = torch.cat([global_v_expanded, value_chunks], dim=3)
-
-    # Reshape for flash attention: treat chunks as separate sequences
-    chunk_len = num_local_slots + group_size
-    query_with_ctx = query_with_ctx.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, chunk_len, self.num_heads, self.head_dim
-    )
-    key_with_ctx = key_with_ctx.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, chunk_len, self.num_heads, self.head_dim
-    )
-    value_with_ctx = value_with_ctx.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, chunk_len, self.num_heads, self.head_dim
-    )
-
-    # ========== Step 5: Flash attention with global+chunk sequences ==========
-    # Stack Q/K/V for flash attention
-    qkv = torch.stack(
-        [query_with_ctx, key_with_ctx, value_with_ctx], dim=2
-    )  # [bsz*num_groups, chunk_len, 3, nh, hd]
-
-    # Prepare attention mask for chunks with global context
-    # Each chunk: [1,1,...,1 (num_slots), mask[i*group_size:(i+1)*group_size]]
-    chunk_masks = []
-    for i in range(num_groups):
-        # Global context is always valid (all 1s)
-        global_mask = torch.ones(
-            bsz,
-            num_local_slots,
-            dtype=attention_mask.dtype,
-            device=attention_mask.device,
-        )
-        # Chunk-specific mask
-        chunk_mask = attention_mask[:, i * group_size : (i + 1) * group_size]
-        # Concatenate
-        chunk_masks.append(torch.cat([global_mask, chunk_mask], dim=1))
-
-    key_padding_mask = torch.stack(chunk_masks, dim=1).view(bsz * num_groups, chunk_len)
-
-    nheads = qkv.shape[-2]
-    x = rearrange(qkv, "b s three h d -> b s (three h d)")
-    x_unpad, indices, cu_q_lens, max_s = unpad_input(x, key_padding_mask)
-
-    x_unpad = rearrange(x_unpad, "nnz (three h d) -> nnz three h d", three=3, h=nheads)
-    output_unpad = flash_attn_varlen_qkvpacked_func(
-        x_unpad, cu_q_lens, max_s, 0.0, softmax_scale=None, causal=True
-    )
-    output = rearrange(
-        pad_input(
-            rearrange(output_unpad, "nnz h d -> nnz (h d)"),
-            indices,
-            bsz * num_groups,
-            chunk_len,
-        ),
-        "b s (h d) -> b s h d",
-        h=nheads,
-    )
-    # [bsz * num_groups, chunk_len, nh, hd]
-
-    # ========== Step 6: Extract chunk outputs (discard global context outputs) ==========
-    # Reshape back and remove global context portion
-    output = output.view(bsz, num_groups, chunk_len, self.num_heads, self.head_dim)
-    output = output[
-        :, :, num_local_slots:, :, :
-    ]  # Keep only chunk outputs, discard global ctx outputs
-    output = output.reshape(bsz, q_len, self.num_heads, self.head_dim)
-
-    return self.o_proj(rearrange(output, "b s h d -> b s (h d)")), None, past_key_value
-
-
-# endregion ===========================================================================
-
-
-# 训练way1混合版  混合优化：合并投影 + 向量化mask + torch.cat拼接（兼顾显存和速度） 已修正
-# region ===========================================================================
-def forward_flashattn_hybrid(
-    self,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.Tensor] = None,
-    past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    padding_mask: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """
-    混合优化版本 - 结合多种优化技巧：
-    1. K/V 合并投影（省显存的关键！from optimized）
-    2. 向量化 mask（省时间，from optimized）
-    3. 使用 torch.cat 拼接（可能更快，from flashattn）
-    4. Q contains chunk only, K/V = [global_context, chunk] (saves compute, from HiCI hierarchical)
-
-    核心优化：
-    - Q: 只投影 hidden_states，输出 [chunk]
-    - K/V: 拼接 [global_context, hidden_states] 后一起投影（省显存）
-    - Flash Attention: Q=[chunk], K/V=[global_context, chunk]
-    - 输出直接是 chunk tokens，无需提取
-    """
-    if output_attentions:
-        warnings.warn(
-            "Output attentions is not supported for patched `LlamaAttention`, returning `None` instead."
-        )
-
-    bsz, q_len, hidden_size = hidden_states.size()
-
-    # ========== Step 1: Global context ==========
-    has_hici = hasattr(self, "local_constructor")
-
-    if has_hici:
-        global_context = self.local_constructor(
-            hidden_states, attention_mask
-        )  # [bsz, num_slots, hidden_size]
-        num_local_slots = global_context.shape[1]
-    else:
-        num_local_slots = 0
-
-    # ========== Step 2: Group parameters ==========
-    group_size = int(q_len * group_size_ratio)
-    if not hasattr(self, "_group_size_printed_hybrid"):
-        layer_idx = getattr(self, "layer_idx", 0)
-        if rank == 0 and layer_idx == 0:
-            print(
-                f"[forward_flashattn_hybrid] Q=[chunk], K/V=[global_mem,chunk] (merged proj), group_size={group_size}"
-            )
-        self._group_size_printed_hybrid = True
-    if q_len % group_size > 0:
-        raise ValueError(
-            f"q_len {q_len} should be divisible by group size {group_size}."
-        )
-    num_groups = q_len // group_size
-
-    # ========== Step 3: Q/K/V 投影 (关键优化！) ==========
-    # Q: 只投影 hidden_states（不包含 global_context）
-    query_states = (
-        self.q_proj(hidden_states)
-        .view(bsz, q_len, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )  # [bsz, nh, q_len, hd]
-
-    if has_hici:
-        # K/V: 拼接后一起投影（省显存的关键！）
-        combined_input = torch.cat(
-            [global_context, hidden_states], dim=1
-        )  # [bsz, num_slots + q_len, hidden_size]
-
-        # K 投影
-        combined_k = (
-            self.k_proj(combined_input)
-            .view(
-                bsz, num_local_slots + q_len, self.num_key_value_heads, self.head_dim
-            )
-            .transpose(1, 2)
-        )  # [bsz, nkv, num_slots + q_len, hd]
-
-        # V 投影
-        combined_v = (
-            self.v_proj(combined_input)
-            .view(
-                bsz, num_local_slots + q_len, self.num_key_value_heads, self.head_dim
-            )
-            .transpose(1, 2)
-        )
-
-        # 分离 global 和 sequence 部分（view 操作，0 额外显存）
-        global_k = combined_k[:, :, :num_local_slots, :]  # [bsz, nkv, num_slots, hd]
-        key_states = combined_k[:, :, num_local_slots:, :]  # [bsz, nkv, q_len, hd]
-
-        global_v = combined_v[:, :, :num_local_slots, :]
-        value_states = combined_v[:, :, num_local_slots:, :]
-    else:
-        # 不使用 global memory，直接投影
-        key_states = (
-            self.k_proj(hidden_states)
-            .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        value_states = (
-            self.v_proj(hidden_states)
-            .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-
-    # ========== Step 4: RoPE (只对 sequence，不对 global) ==========
-    kv_seq_len = key_states.shape[-2]
-    if past_key_value is not None:
-        kv_seq_len += past_key_value[0].shape[-2]
-
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-    query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
-    )
-    # global_k, global_v 不应用 RoPE（记忆是位置无关的）
-
-    # Past Key value support
-    if past_key_value is not None:
-        key_states = torch.cat([past_key_value[0], key_states], dim=2)
-        value_states = torch.cat([past_key_value[1], value_states], dim=2)
-    past_key_value = (key_states, value_states) if use_cache else None
-
-    # Repeat k/v heads if n_kv_heads < n_heads
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
-    if has_hici:
-        global_k = repeat_kv(global_k, self.num_key_value_groups)
-        global_v = repeat_kv(global_v, self.num_key_value_groups)
-
-    # ========== Step 5: Chunk reshaping ==========
-    # Q: 只包含 chunk tokens
-    query_chunks = query_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    key_chunks = key_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    value_chunks = value_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-
-    # ========== Step 6: 拼接 K/V (使用 torch.cat，高效) ==========
-    if has_hici:
-        # 使用 expand + cat（单次 kernel 调用，高度优化）
-        global_k_expanded = global_k.unsqueeze(2).expand(
-            -1, -1, num_groups, -1, -1
-        )  # [bsz, nh, num_groups, num_slots, hd]
-        global_v_expanded = global_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-
-        # K/V: [global_memory, chunk]
-        key_with_ctx = torch.cat(
-            [global_k_expanded, key_chunks], dim=3
-        )  # [bsz, nh, num_groups, num_slots+group_size, hd]
-        value_with_ctx = torch.cat([global_v_expanded, value_chunks], dim=3)
-
-        # Reshape for flash attention
-        kv_len = num_local_slots + group_size
-        key_with_ctx = key_with_ctx.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, kv_len, self.num_heads, self.head_dim
-        )
-        value_with_ctx = value_with_ctx.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, kv_len, self.num_heads, self.head_dim
-        )
-
-        # Q: 只包含 chunk tokens (不包含 global_memory)
-        query_with_ctx = query_chunks.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, group_size, self.num_heads, self.head_dim
-        )
-    else:
-        # 不使用 global memory
-        query_with_ctx = query_chunks.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, group_size, self.num_heads, self.head_dim
-        )
-        key_with_ctx = key_chunks.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, group_size, self.num_heads, self.head_dim
-        )
-        value_with_ctx = value_chunks.permute(0, 2, 3, 1, 4).reshape(
-            bsz * num_groups, group_size, self.num_heads, self.head_dim
-        )
-        kv_len = group_size
-
-    # ========== Step 7: 向量化 mask 构造 (省时间) ==========
-    attention_mask_chunks = attention_mask.view(bsz, num_groups, group_size)
-
-    if has_hici:
-        # 向量化操作，无 Python loop
-        global_mask = attention_mask.new_ones(bsz, num_groups, num_local_slots)
-        # K/V mask: [global_mask, chunk_mask]
-        kv_padding_mask = torch.cat([global_mask, attention_mask_chunks], dim=2)
-        kv_padding_mask = kv_padding_mask.view(bsz * num_groups, kv_len)
-
-        # Q mask: 只有 chunk_mask
-        q_padding_mask = attention_mask_chunks.view(bsz * num_groups, group_size)
-    else:
-        q_padding_mask = attention_mask_chunks.view(bsz * num_groups, group_size)
-        kv_padding_mask = q_padding_mask
-
-    # ========== Step 8: Flash Attention (使用 kvpacked 格式) ==========
-    # Pack K and V: [bsz * num_groups, kv_len, 2, nh, hd]
-    kv = torch.stack([key_with_ctx, value_with_ctx], dim=2)
-
-    nheads = query_with_ctx.shape[-2]
-
-    # Unpad Q
-    q_rearranged = rearrange(query_with_ctx, "b s h d -> b s (h d)")
-    q_unpad, q_indices, cu_q_lens, max_q_len = unpad_input(q_rearranged, q_padding_mask)
-    q_unpad = rearrange(q_unpad, "nnz (h d) -> nnz h d", h=nheads)
-
-    # Unpad KV
-    kv_rearranged = rearrange(kv, "b s two h d -> b s (two h d)")
-    kv_unpad, kv_indices, cu_kv_lens, max_kv_len = unpad_input(
-        kv_rearranged, kv_padding_mask
-    )
-    kv_unpad = rearrange(kv_unpad, "nnz (two h d) -> nnz two h d", two=2, h=nheads)
-
-    # Flash attention with separate Q and KV
-    output_unpad = flash_attn_varlen_kvpacked_func(
-        q_unpad,
-        kv_unpad,
-        cu_q_lens,
-        cu_kv_lens,
-        max_q_len,
-        max_kv_len,
-        0.0,
-        softmax_scale=None,
-        causal=True,
-    )
-
-    # Pad output
-    output = rearrange(
-        pad_input(
-            rearrange(output_unpad, "nnz h d -> nnz (h d)"),
-            q_indices,
-            bsz * num_groups,
-            group_size,
-        ),
-        "b s (h d) -> b s h d",
-        h=nheads,
-    )
-    # [bsz * num_groups, group_size, nh, hd]
-
-    # ========== Step 9: Reshape output (直接就是 chunk tokens，无需提取) ==========
-    output = output.view(bsz, num_groups, group_size, self.num_heads, self.head_dim)
-    output = output.reshape(bsz, q_len, self.num_heads, self.head_dim)
-
-    return self.o_proj(rearrange(output, "b s h d -> b s (h d)")), None, past_key_value
-
-
-# endregion ===========================================================================
-
-
-# ================================================================================
-# 结合 LongLoRA S²-Attn + Hierarchical Memory (完整版本)
-# 在每个 window 的 K/V 前直接拼接 global memory，实现真正的融合
-# ================================================================================
-# region ===========================================================================
-def forward_flashattn_shifted_hici_v1(
-    self,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.Tensor] = None,
-    past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    padding_mask: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """
-    S²-Attn + HiCI Global Context fusion.
-
-    与 v1 的区别：
-    - v1: window attention first, then HiCI global context correction
-    - v2: directly prepend HiCI global context to K/V in each window
-
-    K/V structure: [global_context | window_tokens]
-    Q 结构:   [window_tokens]
-
-    每个 window 可以同时:
-    1. 通过 window_tokens 与相邻 window 交换信息 (shift)
-    2. Obtain document-level context via HiCI global context
-    """
-    if not self.training:
-        warnings.warn(
-            "forward_flashattn_shifted_hici_v2 is for training only. "
-            "For inference, use forward_flashattn_inference."
-        )
-
-    if output_attentions:
-        warnings.warn("Output attentions is not supported, returning `None` instead.")
-
-    bsz, q_len, hidden_size = hidden_states.size()
-
-    # ========== Step 1: 提取 Global Memory ==========
-    has_hici = hasattr(self, "local_constructor")
-    use_global_integrator = hasattr(self, "global_integrator")
-
-    group_size = int(q_len * group_size_ratio)
-    if q_len % group_size > 0:
-        raise ValueError(
-            f"q_len {q_len} should be divisible by group size {group_size}."
-        )
-    num_groups = q_len // group_size
-
-    if has_hici:
-        if use_global_integrator:
-            # 层级记忆
-            chunks = hidden_states.view(bsz, num_groups, group_size, hidden_size)
-            all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
-
-            if attention_mask is not None:
-                attention_mask_chunks = attention_mask.view(bsz, num_groups, group_size)
-                attention_mask_chunks_flat = attention_mask_chunks.view(
-                    bsz * num_groups, group_size
-                )
-            else:
-                attention_mask_chunks_flat = None
-
-            local_memories = self.local_constructor(all_chunks, attention_mask_chunks_flat)
-            num_local_slots = local_memories.shape[1]
-            local_memories_stacked = local_memories.view(
-                bsz, num_groups, num_local_slots, hidden_size
-            )
-
-            global_context = self.global_integrator(local_memories_stacked)
-            num_local_slots = global_context.shape[1]
-        else:
-            global_context = self.local_constructor(hidden_states, attention_mask)
-            num_local_slots = global_context.shape[1]
-    else:
-        global_context = None
-        num_local_slots = 0
-
-    # 打印配置
-    if not hasattr(self, "_shifted_hici_v2_printed"):
-        layer_idx = getattr(self, "layer_idx", 0)
-        if rank == 0 and layer_idx == 0:
-            print("\n" + "=" * 80)
-            print(
-                "🚀 forward_flashattn_shifted_hici_v2: True S²-Attn + HiCI Fusion"
-            )
-            print("=" * 80)
-            print(
-                f"  Config: {num_groups} groups × {group_size} tokens, {self.num_heads} heads"
-            )
-            print(f"  HiCI: {num_local_slots} global slots")
-            print(f"  K/V = [global_context({num_local_slots}) | window({group_size})]")
-            print("=" * 80 + "\n")
-        self._shifted_hici_v2_printed = True
-
-    # ========== Step 2: Q/K/V 投影 ==========
-    query_states = self.q_proj(hidden_states).view(
-        bsz, q_len, self.num_heads, self.head_dim
-    )
-    key_states = self.k_proj(hidden_states).view(
-        bsz, q_len, self.num_key_value_heads, self.head_dim
-    )
-    value_states = self.v_proj(hidden_states).view(
-        bsz, q_len, self.num_key_value_heads, self.head_dim
-    )
-
-    # Global memory K/V (不应用 RoPE)
-    if has_hici and global_context is not None:
-        global_k = self.k_proj(global_context).view(
-            bsz, num_local_slots, self.num_key_value_heads, self.head_dim
-        )
-        global_v = self.v_proj(global_context).view(
-            bsz, num_local_slots, self.num_key_value_heads, self.head_dim
-        )
-    else:
-        global_k = None
-        global_v = None
-
-    # ========== Step 3: RoPE ==========
-    query_states = query_states.transpose(1, 2)  # [bsz, nh, q_len, hd]
-    key_states = key_states.transpose(1, 2)
-    value_states = value_states.transpose(1, 2)
-
-    kv_seq_len = key_states.shape[-2]
-    if past_key_value is not None:
-        kv_seq_len += past_key_value[0].shape[-2]
-
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-    query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
-    )
-
-    if past_key_value is not None:
-        key_states = torch.cat([past_key_value[0], key_states], dim=2)
-        value_states = torch.cat([past_key_value[1], value_states], dim=2)
-    past_key_value = (key_states, value_states) if use_cache else None
-
-    # Repeat k/v heads
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
-    if global_k is not None:
-        global_k = global_k.transpose(1, 2)  # [bsz, nkv, num_slots, hd]
-        global_v = global_v.transpose(1, 2)
-        global_k = repeat_kv(global_k, self.num_key_value_groups)
-        global_v = repeat_kv(global_v, self.num_key_value_groups)
-
-    # ========== Step 4: 分组处理 (S²-Attn 头分组 + Window 分组) ==========
-    half_heads = self.num_heads // 2
-
-    # 将序列分成 windows
-    # Q: [bsz, nh, q_len, hd] -> [bsz, nh, num_groups, group_size, hd]
-    query_chunks = query_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    key_chunks = key_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-    value_chunks = value_states.view(
-        bsz, self.num_heads, num_groups, group_size, self.head_dim
-    )
-
-    # 分成两组头
-    # [bsz, nh, num_groups, group_size, hd] -> [bsz, 2, nh//2, num_groups, group_size, hd]
-    query_chunks = query_chunks.view(
-        bsz, 2, half_heads, num_groups, group_size, self.head_dim
-    )
-    key_chunks = key_chunks.view(
-        bsz, 2, half_heads, num_groups, group_size, self.head_dim
-    )
-    value_chunks = value_chunks.view(
-        bsz, 2, half_heads, num_groups, group_size, self.head_dim
-    )
-
-    if global_k is not None:
-        # [bsz, nh, num_slots, hd] -> [bsz, 2, nh//2, num_slots, hd]
-        global_k = global_k.view(bsz, 2, half_heads, num_local_slots, self.head_dim)
-        global_v = global_v.view(bsz, 2, half_heads, num_local_slots, self.head_dim)
-
-    # ========== Step 5: 处理 Group 2 的 shift ==========
-    # Group 2 需要将序列偏移 group_size // 2
-    shift_size = group_size // 2
-
-    # Group 1: 正常顺序
-    q_g1 = query_chunks[:, 0]  # [bsz, nh//2, num_groups, group_size, hd]
-    k_g1 = key_chunks[:, 0]
-    v_g1 = value_chunks[:, 0]
-
-    # Group 2: 偏移处理
-    # 需要将序列 roll 半个 window
-    q_g2 = query_chunks[:, 1]
-    k_g2 = key_chunks[:, 1]
-    v_g2 = value_chunks[:, 1]
-
-    # Roll 操作：将 Group 2 的序列偏移
-    # 这实现了 shifted window 的效果
-    # [bsz, nh//2, num_groups, group_size, hd] -> [bsz, nh//2, q_len, hd] -> roll -> reshape back
-    q_g2_flat = q_g2.reshape(bsz, half_heads, q_len, self.head_dim)
-    k_g2_flat = k_g2.reshape(bsz, half_heads, q_len, self.head_dim)
-    v_g2_flat = v_g2.reshape(bsz, half_heads, q_len, self.head_dim)
-
-    # Roll by shift_size (负数表示向左移动)
-    q_g2_flat = torch.roll(q_g2_flat, shifts=-shift_size, dims=2)
-    k_g2_flat = torch.roll(k_g2_flat, shifts=-shift_size, dims=2)
-    v_g2_flat = torch.roll(v_g2_flat, shifts=-shift_size, dims=2)
-
-    # Reshape back to groups
-    q_g2 = q_g2_flat.view(bsz, half_heads, num_groups, group_size, self.head_dim)
-    k_g2 = k_g2_flat.view(bsz, half_heads, num_groups, group_size, self.head_dim)
-    v_g2 = v_g2_flat.view(bsz, half_heads, num_groups, group_size, self.head_dim)
-
-    # ========== Step 6: 在每个 window 的 K/V 前拼接 global memory ==========
-    if global_k is not None:
-        # global_k: [bsz, 2, nh//2, num_slots, hd]
-        global_k_g1 = global_k[:, 0]  # [bsz, nh//2, num_slots, hd]
-        global_v_g1 = global_v[:, 0]
-        global_k_g2 = global_k[:, 1]
-        global_v_g2 = global_v[:, 1]
-
-        # 扩展到每个 group
-        # [bsz, nh//2, num_slots, hd] -> [bsz, nh//2, num_groups, num_slots, hd]
-        global_k_g1 = global_k_g1.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-        global_v_g1 = global_v_g1.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-        global_k_g2 = global_k_g2.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-        global_v_g2 = global_v_g2.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-
-        # 拼接: K/V = [global_memory, window_tokens]
-        k_g1 = torch.cat(
-            [global_k_g1, k_g1], dim=3
-        )  # [bsz, nh//2, num_groups, mem+grp, hd]
-        v_g1 = torch.cat([global_v_g1, v_g1], dim=3)
-        k_g2 = torch.cat([global_k_g2, k_g2], dim=3)
-        v_g2 = torch.cat([global_v_g2, v_g2], dim=3)
-
-        kv_len = num_local_slots + group_size
-    else:
-        kv_len = group_size
-
-    # ========== Step 7: 准备 Flash Attention 输入 ==========
-    # Reshape for flash_attn_func: (batch, seqlen, nheads, headdim)
-    # 合并 batch 和 groups 维度
-
-    # Q: [bsz, nh//2, num_groups, group_size, hd] -> [bsz*num_groups, group_size, nh//2, hd]
-    q_g1 = q_g1.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, group_size, half_heads, self.head_dim
-    )
-    q_g2 = q_g2.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, group_size, half_heads, self.head_dim
-    )
-
-    # K/V: [bsz, nh//2, num_groups, kv_len, hd] -> [bsz*num_groups, kv_len, nh//2, hd]
-    k_g1 = k_g1.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, kv_len, half_heads, self.head_dim
-    )
-    v_g1 = v_g1.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, kv_len, half_heads, self.head_dim
-    )
-    k_g2 = k_g2.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, kv_len, half_heads, self.head_dim
-    )
-    v_g2 = v_g2.permute(0, 2, 3, 1, 4).reshape(
-        bsz * num_groups, kv_len, half_heads, self.head_dim
-    )
-
-    # ========== Step 8: Flash Attention ==========
-    # 使用 flash_attn_func (更简单，不需要处理 padding)
-    # 注意：这里假设没有 padding（训练时通常如此）
-    # 如果有 padding，需要使用 varlen 版本
-
-    # Group 1
-    out_g1 = flash_attn_func(
-        q_g1,
-        k_g1,
-        v_g1,
-        dropout_p=0.0,
-        softmax_scale=None,
-        causal=True,  # Q tokens 只能看到 K/V 中 <= 自己位置的 tokens
-    )  # [bsz*num_groups, group_size, nh//2, hd]
-
-    # Group 2
-    out_g2 = flash_attn_func(
-        q_g2, k_g2, v_g2, dropout_p=0.0, softmax_scale=None, causal=True
-    )
-
-    # ========== Step 9: 恢复 Group 2 的 shift ==========
-    # 将 Group 2 的输出 roll 回来
-    out_g2 = out_g2.view(bsz, num_groups, group_size, half_heads, self.head_dim)
-    out_g2 = out_g2.permute(0, 3, 1, 2, 4)  # [bsz, nh//2, num_groups, group_size, hd]
-    out_g2_flat = out_g2.reshape(bsz, half_heads, q_len, self.head_dim)
-    out_g2_flat = torch.roll(out_g2_flat, shifts=shift_size, dims=2)  # Roll back
-    out_g2 = out_g2_flat.view(bsz, half_heads, num_groups, group_size, self.head_dim)
-
-    # Group 1 reshape
-    out_g1 = out_g1.view(bsz, num_groups, group_size, half_heads, self.head_dim)
-    out_g1 = out_g1.permute(0, 3, 1, 2, 4)  # [bsz, nh//2, num_groups, group_size, hd]
-
-    # ========== Step 10: 合并两组输出 ==========
-    # out_g1, out_g2: [bsz, nh//2, num_groups, group_size, hd]
-    # Stack: [bsz, 2, nh//2, num_groups, group_size, hd]
-    output = torch.stack([out_g1, out_g2], dim=1)
-    # Reshape: [bsz, nh, num_groups, group_size, hd] -> [bsz, q_len, nh, hd]
-    output = output.view(bsz, self.num_heads, num_groups, group_size, self.head_dim)
-    output = output.permute(0, 2, 3, 1, 4)  # [bsz, num_groups, group_size, nh, hd]
-    output = output.reshape(bsz, q_len, self.num_heads, self.head_dim)
-
-    return self.o_proj(rearrange(output, "b s h d -> b s (h d)")), None, past_key_value
-
-
-# endregion ===========================================================================
-
-
-# v2: S²-Attn + Global Memory (优化版，更早合并 batch 避免重复处理)
-# ================================================================================
-# region ===========================================================================
-def forward_flashattn_hybrid_shift_v2(
-    self,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.Tensor] = None,
-    past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    padding_mask: Optional[torch.LongTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """
-    S²-Attn + HiCI Global Context (optimized), earlier batch merge to avoid redundant processing.
-
-    核心优化：头分组后直接合并到 batch 维度 [bsz, 2, nh//2, L, hd] → [bsz*2, nh//2, L, hd]
-    Then shift Group 2, unify chunking and HiCI context concatenation.
-
-    Q: [chunk_tokens]
-    K/V: [memory_slots | chunk_tokens]
-    """
-    if not self.training:
-        warnings.warn("Use forward_flashattn_inference for inference.")
-
-    bsz, q_len, _ = hidden_states.size()
-    group_size = int(q_len * group_size_ratio)
-    num_groups = q_len // group_size
-    half_heads = self.num_heads // 2
-    shift_size = group_size // 2
-
-    # ===== 1. Global Memory =====
-    use_mem = hasattr(self, "local_constructor")
-    if use_mem:
-        global_ctx = self.local_constructor(hidden_states, attention_mask)
-        M = global_ctx.shape[1]
-    else:
-        global_ctx, M = None, 0
-
-    # 首次打印
-    if not hasattr(self, "_hsv4_printed"):
-        if rank == 0 and getattr(self, "layer_idx", 0) == 0:
-            print(
-                f"\n[Hybrid+Shift v4] groups={num_groups}, group_size={group_size}, "
-                f"hici_slots={M}, heads={self.num_heads}→2×{half_heads}, shift={shift_size}\n"
-            )
-        self._hsv4_printed = True
-
-    # ===== 2. Q/K/V 投影 + RoPE =====
-    Q = (
-        self.q_proj(hidden_states)
-        .view(bsz, q_len, self.num_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    K = (
-        self.k_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-    V = (
-        self.v_proj(hidden_states)
-        .view(bsz, q_len, self.num_key_value_heads, self.head_dim)
-        .transpose(1, 2)
-    )
-
-    cos, sin = self.rotary_emb(V, seq_len=q_len)
-    Q, K = apply_rotary_pos_emb(Q, K, cos, sin, position_ids)
-
-    if past_key_value is not None:
-        K = torch.cat([past_key_value[0], K], dim=2)
-        V = torch.cat([past_key_value[1], V], dim=2)
-    past_key_value = (K, V) if use_cache else None
-
-    K = repeat_kv(K, self.num_key_value_groups)
-    V = repeat_kv(V, self.num_key_value_groups)
-
-    # Memory K/V (无 RoPE)
-    if use_mem:
-        Km = (
-            self.k_proj(global_ctx)
-            .view(bsz, M, self.num_key_value_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        Vm = (
-            self.v_proj(global_ctx)
-            .view(bsz, M, self.num_key_value_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        Km = repeat_kv(Km, self.num_key_value_groups)
-        Vm = repeat_kv(Vm, self.num_key_value_groups)
-
-    # ===== 3. 头分组 + batch 翻倍 (LongLoRA 核心) =====
-    # [bsz, nh, L, hd] → [bsz, 2, nh//2, L, hd] → [bsz*2, nh//2, L, hd]
-    Q = Q.view(bsz, 2, half_heads, q_len, self.head_dim).reshape(
-        bsz * 2, half_heads, q_len, self.head_dim
-    )
-    K = K.view(bsz, 2, half_heads, q_len, self.head_dim).reshape(
-        bsz * 2, half_heads, q_len, self.head_dim
-    )
-    V = V.view(bsz, 2, half_heads, q_len, self.head_dim).reshape(
-        bsz * 2, half_heads, q_len, self.head_dim
-    )
-
-    if use_mem:
-        Km = Km.view(bsz, 2, half_heads, M, self.head_dim).reshape(
-            bsz * 2, half_heads, M, self.head_dim
-        )
-        Vm = Vm.view(bsz, 2, half_heads, M, self.head_dim).reshape(
-            bsz * 2, half_heads, M, self.head_dim
-        )
-
-    # mask 也翻倍: [bsz, q_len] → [bsz*2, q_len]
-    mask = attention_mask.repeat(2, 1)
-
-    # ===== 4. Group 2 shift (只对后半部分 batch) =====
-    Q[bsz:] = torch.roll(Q[bsz:], shifts=-shift_size, dims=2)
-    K[bsz:] = torch.roll(K[bsz:], shifts=-shift_size, dims=2)
-    V[bsz:] = torch.roll(V[bsz:], shifts=-shift_size, dims=2)
-    mask[bsz:] = torch.roll(mask[bsz:], shifts=-shift_size, dims=1)
-
-    # ===== 5. 分 chunk =====
-    # [bsz*2, nh//2, L, hd] → [bsz*2, nh//2, num_groups, group_size, hd]
-    Q = Q.view(bsz * 2, half_heads, num_groups, group_size, self.head_dim)
-    K = K.view(bsz * 2, half_heads, num_groups, group_size, self.head_dim)
-    V = V.view(bsz * 2, half_heads, num_groups, group_size, self.head_dim)
-
-    # ===== 6. 每个 chunk 的 K/V = [memory | chunk] =====
-    if use_mem:
-        # 扩展到每个 chunk: [bsz*2, nh//2, M, hd] → [bsz*2, nh//2, num_groups, M, hd]
-        Km = Km.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-        Vm = Vm.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-        # 拼接: K/V = [memory | chunk]
-        K = torch.cat([Km, K], dim=3)  # [bsz*2, nh//2, num_groups, M+group_size, hd]
-        V = torch.cat([Vm, V], dim=3)
-        kv_len = M + group_size
-    else:
-        kv_len = group_size
-
-    # ===== 7. Reshape for Flash Attention =====
-    # [bsz*2, nh//2, num_groups, L, hd] → [bsz*2*num_groups, L, nh//2, hd]
-    batch_all = bsz * 2 * num_groups
-    Q = Q.permute(0, 2, 3, 1, 4).reshape(
-        batch_all, group_size, half_heads, self.head_dim
-    )
-    K = K.permute(0, 2, 3, 1, 4).reshape(batch_all, kv_len, half_heads, self.head_dim)
-    V = V.permute(0, 2, 3, 1, 4).reshape(batch_all, kv_len, half_heads, self.head_dim)
-
-    # ===== 8. 构建 Padding Mask =====
-    # Q mask: [bsz*2, q_len] → [bsz*2, num_groups, group_size] → [bsz*2*num_groups, group_size]
-    q_mask = mask.view(bsz * 2, num_groups, group_size).reshape(batch_all, group_size)
-
-    # KV mask: [global_mask(全1), chunk_mask]
-    if use_mem:
-        global_mask = attention_mask.new_ones(bsz * 2, num_groups, M)
-        chunk_mask = mask.view(bsz * 2, num_groups, group_size)
-        kv_mask = torch.cat([global_mask, chunk_mask], dim=2).reshape(batch_all, kv_len)
-    else:
-        kv_mask = q_mask
-
-    # ===== 9. Flash Attention =====
-    kv = torch.stack([K, V], dim=2)  # [batch_all, kv_len, 2, nh//2, hd]
-
-    q_flat = rearrange(Q, "b s h d -> b s (h d)")
-    q_unpad, q_indices, cu_q_lens, max_q_len = unpad_input(q_flat, q_mask)
-    q_unpad = rearrange(q_unpad, "nnz (h d) -> nnz h d", h=half_heads)
-
-    kv_flat = rearrange(kv, "b s two h d -> b s (two h d)")
-    kv_unpad, _, cu_kv_lens, max_kv_len = unpad_input(kv_flat, kv_mask)
-    kv_unpad = rearrange(kv_unpad, "nnz (two h d) -> nnz two h d", two=2, h=half_heads)
-
-    out_unpad = flash_attn_varlen_kvpacked_func(
-        q_unpad,
-        kv_unpad,
-        cu_q_lens,
-        cu_kv_lens,
-        max_q_len,
-        max_kv_len,
-        dropout_p=0.0,
-        softmax_scale=None,
-        causal=True,
-    )
-
-    out = pad_input(
-        rearrange(out_unpad, "nnz h d -> nnz (h d)"), q_indices, batch_all, group_size
-    )
-    out = rearrange(out, "b s (h d) -> b s h d", h=half_heads)
-    # [bsz*2*num_groups, group_size, nh//2, hd]
-
-    # ===== 10. Reshape back + Group 2 roll 回来 =====
-    # [bsz*2*num_groups, group_size, nh//2, hd] → [bsz*2, nh//2, L, hd]
-    out = out.view(bsz * 2, num_groups, group_size, half_heads, self.head_dim)
-    out = out.permute(0, 3, 1, 2, 4).reshape(bsz * 2, half_heads, q_len, self.head_dim)
-
-    # Group 2 roll 回来 (只对后半部分 batch)
-    out[bsz:] = torch.roll(out[bsz:], shifts=shift_size, dims=2)
-
-    # ===== 11. 合并两组头 =====
-    # [bsz*2, nh//2, L, hd] → [bsz, 2, nh//2, L, hd] → [bsz, L, nh, hd]
-    out = out.view(bsz, 2, half_heads, q_len, self.head_dim)
-    out = out.permute(0, 3, 1, 2, 4).reshape(bsz, q_len, self.num_heads, self.head_dim)
-
-    return self.o_proj(rearrange(out, "b s h d -> b s (h d)")), None, past_key_value
-
-
-# endregion ===========================================================================
 
 
 # 训练way3 NEW: Hierarchical Memory with Cache (整合版本)
@@ -6307,11 +4500,6 @@ def forward_noflashattn_hierarchical(
         attn_output = self.o_proj(attn_output)
 
     return attn_output, None, past_key_value
-
-
-# zxy
-# forward_flashattn = forward_flashattn_hierarchical_with_cache
-# forward_flashattn_optimized = forward_flashattn_hierarchical_with_cache
 
 
 #  评估代码
