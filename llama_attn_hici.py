@@ -4912,7 +4912,7 @@ def register_hici_to_model(
         if use_local_constructor:
             config_str.append("LocalConstructor")
         if use_global_integrator:
-            config_str.append("Hierarchical Aggregator")
+            config_str.append("GlobalIntegrator")
 
         if config_str:
             print(f"🔧 Registering: {' + '.join(config_str)}")
@@ -5080,7 +5080,7 @@ def register_hici_to_model(
             total_hici_params = local_constructor_params + aggregator_params
             print(f"\nRegistered Modules:")
             print(f"  ✓ LocalConstructor ({local_constructor_params:,} params)")
-            print(f"  ✓ Hierarchical Aggregator ({aggregator_params:,} params)")
+            print(f"  ✓ GlobalIntegrator ({aggregator_params:,} params)")
             print(
                 f"\nTotal HiCI Params: {total_hici_params:,} ({total_hici_params / total_params * 100:.2f}%)"
             )
@@ -5094,7 +5094,7 @@ def register_hici_to_model(
 
         elif not use_local_constructor and use_global_integrator:
             print(f"\n⚠️ Warning: GlobalIntegrator registered without LocalConstructor!")
-            print(f"  ✓ Hierarchical Aggregator ({aggregator_params:,} params)")
+            print(f"  ✓ GlobalIntegrator ({aggregator_params:,} params)")
             print(
                 f"\nTotal HiCI Params: {aggregator_params:,} ({aggregator_params / total_params * 100:.2f}%)"
             )

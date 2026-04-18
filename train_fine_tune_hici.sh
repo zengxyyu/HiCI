@@ -1,12 +1,12 @@
 pkill -9 -f "fine-tune_hici.py"
 # Train_out_13b_baseline
 # bash train_fine_tune_hici.sh 2>&1 | tee Train_out_baseline/Llama-2-7b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_G16.txt
-# bash train_fine_tune_hici.sh 2>&1 | tee Training_out_fuxian/Llama-2-13b-hici-16k-none.txt
+# bash train_fine_tune_hici.sh 2>&1 | tee Training_out_fuxian/Llama-2-13b-hici-16k-none-4gpus.txt
 # New_Training_out Train_out_baseline
 # 8192 16384 32768 65536  100000 131072  262144 
 MODEL_PATH="./models/Llama-2-13b-hf"
 # MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Meta-Llama-3-8B"
-OUTPUT_DIR="./checkpoints/Llama-2-13b-hici-16k-none"
+OUTPUT_DIR="./checkpoints/Llama-2-13b-hici-16k-none-sub"
 MAX_LENGTH=16384  # 8192 32768 16384 65536 100000 131072 262144
 WARMUP_STEPS=20
 hici_lr=2e-4
@@ -85,8 +85,8 @@ torchrun --nproc_per_node $nproc_per_node \
       --gradient_accumulation_steps 16 \
       --evaluation_strategy "no" \
       --save_strategy "steps" \
-      --save_steps 250 \
-      --save_total_limit 4 \
+      --save_steps 500 \
+      --save_total_limit 2 \
       --learning_rate 2e-5 \
       --weight_decay 0.0 \
       --warmup_steps $WARMUP_STEPS \

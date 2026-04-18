@@ -1820,7 +1820,7 @@ def register_hici_to_qwen3_model(
         if use_local_constructor:
             config_str.append("LocalConstructor")
         if use_global_integrator:
-            config_str.append("Hierarchical Aggregator")
+            config_str.append("GlobalIntegrator")
         if config_str:
             print(f"🔧 Registering (Qwen3): {' + '.join(config_str)}")
         else:
