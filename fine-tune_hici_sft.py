@@ -5,7 +5,7 @@ Supervised Fine-Tuning with HiCI
 
 Key changes vs the original supervised-fine-tune.py:
 1. Uses llama_attn_hici_sft.py (includes HiCI mechanism)
-2. Registers LocalConstructor and HierarchicalAggregator
+2. Registers LocalConstructor and GlobalIntegrator
 3. Correctly loads Stage 1 HiCI weights
 4. Supports layered learning rates (HiCI vs base model vs LoRA)
 5. Keeps HiCI modules trainable
@@ -144,13 +144,13 @@ class LayeredLRTrainer(Trainer):
                         print(f"    🧠 LocalConstructor: Not enabled (0 parameters)")
 
                     if hierarchical_count > 0:
-                        print(f"    🏗️  HierarchicalAggregator:")
+                        print(f"    🏗️  GlobalIntegrator:")
                         print(
                             f"       Count: {hierarchical_count:,} ({hierarchical_count / total_count * 100:.2f}%)"
                         )
                     else:
                         print(
-                            f"    🏗️  HierarchicalAggregator: Not enabled (0 parameters)"
+                            f"    🏗️  GlobalIntegrator: Not enabled (0 parameters)"
                         )
 
                     print(f"  " + "-" * 68)
@@ -312,7 +312,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether use low rank adaptation for training."},
     )
     trainable_params: str = field(
-        default="embed,norm",
+        default="embed,norm,local_constructor,global_integrator",
         metadata={
             "help": "Additional trainable parameters except LoRA weights, if low rank training."
         },
@@ -320,12 +320,12 @@ class TrainingArguments(transformers.TrainingArguments):
 
     # HiCI module parameters (must match fine-tune_hici.py)
     num_local_slots: int = field(
-        default=16,
+        default=8,
         metadata={"help": "Number of Local Representation Slots for LocalConstructor"},
     )
     global_slots: int = field(
         default=4,
-        metadata={"help": "Number of Global Representation Slots for HierarchicalAggregator"},
+        metadata={"help": "Number of Global Representation Slots for GlobalIntegrator"},
     )
     use_local_constructor: bool = field(
         default=True,
@@ -366,7 +366,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Warm-initialize HiCI module Q/K/V projections from LLaMA pretrained weights."},
     )
     use_hierarchical_forward: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Whether to use the combined hierarchical forward (LocalConstructor + GlobalIntegrator)."},
     )
     hici_grad_clip: float = field(

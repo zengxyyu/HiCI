@@ -246,21 +246,21 @@ class LocalConstructorMulti(nn.Module):
 
         slots_expanded = self.memory_slots.unsqueeze(0).expand(bsz, -1, -1)
 
-        Q_mem = self.q_proj(slots_expanded)
+        Q_slots = self.q_proj(slots_expanded)
         K_seq = self.k_proj(hidden_states)
         V_seq = self.v_proj(hidden_states)
 
-        Q_mem = Q_mem.view(bsz, self.num_local_slots, self.num_heads, self.effective_head_dim)
+        Q_slots = Q_slots.view(bsz, self.num_local_slots, self.num_heads, self.effective_head_dim)
         K_seq = K_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
         V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
 
         # Transpose for attention: [bsz, num_heads, seqlen, head_dim]
-        Q_mem = Q_mem.transpose(1, 2)
+        Q_slots = Q_slots.transpose(1, 2)
         K_seq = K_seq.transpose(1, 2)
         V_seq = V_seq.transpose(1, 2)
 
         # Compute attention scores: Q @ K^T
-        scores = torch.matmul(Q_mem, K_seq.transpose(-2, -1)) / math.sqrt(
+        scores = torch.matmul(Q_slots, K_seq.transpose(-2, -1)) / math.sqrt(
             self.effective_head_dim
         )
 
@@ -283,13 +283,18 @@ class LocalConstructorMulti(nn.Module):
 
 
 # ============================================================================
-# LocalConstructorFlash — Local Construction module (K/V-reuse variant)
+# LocalConstructorFlash — Local Construction module (flash-attn variant)
 # ============================================================================
 class LocalConstructorFlash(nn.Module):
     """
-    Improved version: reuses the model's K/V projections, only needs its own Q projection.
-    Architecture-agnostic: works with any transformer model.
+    Learnable query slots for local context construction using Flash Attention.
+
+    Supports very long sequences (100k+) via O(N) memory complexity and
+    correct padding handling via unpad_input. Has its own Q/K/V projections
+    (does not reuse the model's projections), compatible with GQA models.
     """
+
+    _init_msg_printed = False
 
     def __init__(
         self,
@@ -298,64 +303,85 @@ class LocalConstructorFlash(nn.Module):
         num_heads=32,
         init_from_embeddings=None,
         init_from_attn=None,
+        use_bottleneck: Optional[bool] = True,
+        bottleneck_dim: Optional[int] = 512,
     ):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_local_slots = num_local_slots
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
+        self.use_bottleneck = use_bottleneck
+        self.bottleneck_dim = bottleneck_dim
 
         assert hidden_size % num_heads == 0, (
             f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
         )
-        layer_idx = getattr(self, "layer_idx", 0)
 
-        if init_from_embeddings is not None:
-            indices = torch.randperm(init_from_embeddings.size(0))[:num_local_slots]
-            self.memory_slots = nn.Parameter(init_from_embeddings[indices].clone())
-            local_rank = dist.get_rank() if dist.is_initialized() else 0
-            if local_rank == 0 and layer_idx == 0:
-                print(f"    ✅ Initialized memory_slots from pretrained embeddings (sampled {num_local_slots} tokens)")
-                print(f"    [LocalConstructorFlash] Initialized memory_slots from embeddings, num_heads={num_heads}")
-        else:
-            std = 1.0 / math.sqrt(hidden_size)
-            self.memory_slots = nn.Parameter(
-                torch.randn(num_local_slots, hidden_size) * std
+        std = 1.0 / math.sqrt(hidden_size)
+        self.memory_slots = nn.Parameter(
+            torch.randn(num_local_slots, hidden_size) * std
+        )
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        if rank == 0 and not LocalConstructorFlash._init_msg_printed:
+            print(f"LocalConstructorFlash: Initialized memory_slots with std={std}")
+            LocalConstructorFlash._init_msg_printed = True
+
+        if use_bottleneck:
+            assert bottleneck_dim % num_heads == 0, (
+                f"bottleneck_dim ({bottleneck_dim}) must be divisible by num_heads ({num_heads})"
             )
-            local_rank = dist.get_rank() if dist.is_initialized() else 0
-            if local_rank == 0 and layer_idx == 0:
-                print(f"    [LocalConstructorFlash] Initialized memory_slots with std={std}")
-                print(f"    [LocalConstructorFlash] Initialized memory_slots randomly, num_heads={num_heads}")
+            if rank == 0:
+                print(f"LocalConstructorFlash: bottleneck_dim={bottleneck_dim}")
 
-        # Only Q projection needed - K/V reused from model's attention
-        self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.q_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
+            self.k_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
+            self.v_proj = nn.Linear(hidden_size, bottleneck_dim, bias=False)
+            self.o_proj = nn.Linear(bottleneck_dim, hidden_size, bias=False)
+
+            self.effective_dim = bottleneck_dim
+            self.effective_head_dim = bottleneck_dim // num_heads
+        else:
+            self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.o_proj = None
+
+            self.effective_dim = hidden_size
+            self.effective_head_dim = self.head_dim
+
         if init_from_attn is not None:
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            layer_idx = getattr(self, "layer_idx", 0)
             with torch.no_grad():
                 self.q_proj.weight.copy_(init_from_attn.q_proj.weight)
-            local_rank = dist.get_rank() if dist.is_initialized() else 0
-            if local_rank == 0 and layer_idx == 0:
-                print(f"✅ Initialized Q projection from pretrained weights")
+                self.k_proj.weight.copy_(init_from_attn.k_proj.weight)
+                self.v_proj.weight.copy_(init_from_attn.v_proj.weight)
+            if rank == 0 and layer_idx == 0:
+                print(f"[LocalConstructorFlash] Initialized Q/K/V projections from pretrained weights")
 
-    def forward(self, key_states, value_states, attention_mask=None):
+    def forward(self, hidden_states, attention_mask=None):
         """
-        Compute global context reusing pre-projected K/V from the model.
+        Compute local context via Flash Attention cross-attention.
 
         Args:
-            key_states: [bsz, seq_len, num_heads, head_dim] - already projected + RoPE
-            value_states: [bsz, seq_len, num_heads, head_dim] - already projected
-            attention_mask: [bsz, seq_len] - 1 for valid, 0 for padding
+            hidden_states: [bsz, seq_len, hidden_size] - full input sequence
+            attention_mask: [bsz, seq_len] - 1 for valid, 0 for padding (optional)
 
         Returns:
             global_context: [bsz, num_slots, hidden_size]
         """
-        bsz = key_states.shape[0]
+        bsz, seq_len, _ = hidden_states.shape
 
-        slots_expanded = self.memory_slots.unsqueeze(0).expand(bsz, -1, -1)
-        Q_mem = self.q_proj(slots_expanded)
-        Q_mem = Q_mem.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
+        slots_input = self.memory_slots.unsqueeze(0).expand(bsz, -1, -1)
 
-        K_seq = key_states
-        V_seq = value_states
+        Q_slots = self.q_proj(slots_input)   # [bsz, num_slots, effective_dim]
+        K_seq = self.k_proj(hidden_states)   # [bsz, seq_len, effective_dim]
+        V_seq = self.v_proj(hidden_states)   # [bsz, seq_len, effective_dim]
+
+        Q_slots = Q_slots.view(bsz, self.num_local_slots, self.num_heads, self.effective_head_dim)
+        K_seq = K_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
+        V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
 
         if attention_mask is not None:
             kv = torch.stack([K_seq, V_seq], dim=2)
@@ -367,12 +393,12 @@ class LocalConstructorFlash(nn.Module):
                 kv_unpad, "nnz (two h d) -> nnz two h d", two=2, h=self.num_heads
             )
 
-            q_unpad = rearrange(Q_mem, "b s h d -> (b s) h d")
+            q_unpad = rearrange(Q_slots, "b s h d -> (b s) h d")
             cu_seqlens_q = torch.arange(
                 0,
                 (bsz + 1) * self.num_local_slots,
                 self.num_local_slots,
-                device=key_states.device,
+                device=hidden_states.device,
                 dtype=torch.int32,
             )
 
@@ -393,12 +419,15 @@ class LocalConstructorFlash(nn.Module):
             )
         else:
             global_context = flash_attn_func(
-                Q_mem, K_seq, V_seq,
+                Q_slots, K_seq, V_seq,
                 dropout_p=0.0,
                 softmax_scale=None,
                 causal=False,
             )
             global_context = rearrange(global_context, "b s h d -> b s (h d)")
+
+        if self.o_proj is not None:
+            global_context = self.o_proj(global_context)
 
         return global_context
 
@@ -416,7 +445,7 @@ class GlobalIntegrator(nn.Module):
     Higher parameter count (~13.7M/layer) but more expressive.
 
     Input/output:
-        Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
+        Input:  local_repr [bsz, num_chunks, local_slots, hidden_size]
         Output: global_context  [bsz, global_slots, hidden_size]
     """
 
@@ -528,16 +557,16 @@ class GlobalIntegrator(nn.Module):
             )
             GlobalIntegrator._init_msg_printed = True
 
-    def forward(self, local_memories: torch.Tensor) -> torch.Tensor:
+    def forward(self, local_repr: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
+            local_repr: [bsz, num_chunks, local_slots, hidden_size]
         Returns:
             G: [bsz, global_slots, hidden_size]
         """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
+        bsz, num_chunks, local_slots, hidden_size = local_repr.shape
 
-        all_local = local_memories.reshape(bsz, -1, hidden_size)
+        all_local = local_repr.reshape(bsz, -1, hidden_size)
 
         mean_pool = all_local.mean(dim=1)
         max_pool, _ = all_local.max(dim=1)
@@ -716,16 +745,16 @@ class GlobalIntegratorShared(nn.Module):
             print(f"       - 🎯 Saved {(1 - total_params / 13.7e6) * 100:.0f}% compared to original")
             GlobalIntegratorShared._init_msg_printed = True
 
-    def forward(self, local_memories: torch.Tensor) -> torch.Tensor:
+    def forward(self, local_repr: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
+            local_repr: [bsz, num_chunks, local_slots, hidden_size]
         Returns:
             G: [bsz, global_slots, hidden_size]
         """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
+        bsz, num_chunks, local_slots, hidden_size = local_repr.shape
 
-        all_local = local_memories.reshape(bsz, -1, hidden_size)
+        all_local = local_repr.reshape(bsz, -1, hidden_size)
 
         # 5 statistics
         mean_pool = all_local.mean(dim=1)
@@ -775,35 +804,35 @@ class GlobalIntegratorShared(nn.Module):
 
         return G
 
-    def forward_causal(self, local_memories: torch.Tensor) -> torch.Tensor:
+    def forward_causal(self, local_repr: torch.Tensor) -> torch.Tensor:
         """
         Causal forward pass: computes an independent G_i per segment (shared-compressor variant).
 
         For segment i, G_i is computed from the cumulative statistics of L_1, ..., L_i.
 
         Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
+            local_repr: [bsz, num_chunks, local_slots, hidden_size]
 
         Returns:
             G_all: [bsz, num_chunks, global_slots, hidden_size]
         """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
+        bsz, num_chunks, local_slots, hidden_size = local_repr.shape
 
         # ========== Stage 1: Cumulative statistics extraction ==========
-        sum_per_chunk = local_memories.sum(dim=2)           # [bsz, N, H]
-        max_per_chunk = local_memories.max(dim=2).values    # [bsz, N, H]
-        min_per_chunk = local_memories.min(dim=2).values    # [bsz, N, H]
+        sum_per_chunk = local_repr.sum(dim=2)           # [bsz, N, H]
+        max_per_chunk = local_repr.max(dim=2).values    # [bsz, N, H]
+        min_per_chunk = local_repr.min(dim=2).values    # [bsz, N, H]
 
         cumsum = sum_per_chunk.cumsum(dim=1)                # [bsz, N, H]
-        counts = torch.arange(1, num_chunks + 1, device=local_memories.device,
-                              dtype=local_memories.dtype).view(1, -1, 1) * local_slots
+        counts = torch.arange(1, num_chunks + 1, device=local_repr.device,
+                              dtype=local_repr.dtype).view(1, -1, 1) * local_slots
         cum_mean = cumsum / counts                          # [bsz, N, H]
 
         cum_max = max_per_chunk.cummax(dim=1).values        # [bsz, N, H]
         cum_min = min_per_chunk.cummin(dim=1).values        # [bsz, N, H]
 
         with torch.amp.autocast(device_type="cuda", enabled=False):
-            local_fp32 = local_memories.float()
+            local_fp32 = local_repr.float()
             sq_sum_per_chunk = (local_fp32 ** 2).sum(dim=2)
             cum_sq_sum = sq_sum_per_chunk.cumsum(dim=1)
             counts_f = counts.float()
@@ -811,7 +840,7 @@ class GlobalIntegratorShared(nn.Module):
             cum_mean_f = cumsum.float() / counts_f
             cum_var = (cum_sq_mean - cum_mean_f ** 2).clamp(min=1e-12)
             cum_std = cum_var.sqrt()
-        cum_std = cum_std.to(local_memories.dtype)
+        cum_std = cum_std.to(local_repr.dtype)
 
         cum_norm_mean = F.normalize(cum_mean, dim=-1, p=2, eps=1e-6)
 
@@ -862,8 +891,8 @@ def forward_flashattn_hierarchical(
     attention_mask: Optional[torch.Tensor] = None,
     past_key_value=None,
     cache_position: Optional[torch.LongTensor] = None,
-    use_higher_global: bool = True,
-    use_local_constructor: bool = True,
+    use_global_context: bool = True,
+    use_local_repr: bool = True,
     **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
@@ -875,7 +904,7 @@ def forward_flashattn_hierarchical(
     - QK-Norm: self.q_norm / self.k_norm applied before RoPE
     - Returns (attn_output, attn_weights) instead of (attn_output, None)
 
-    Q=[chunk], K/V=[higher_global?, local?, chunk]
+    Q=[chunk], K/V=[global_context?, local?, chunk]
     """
     if not self.training:
         warnings.warn(
@@ -904,14 +933,14 @@ def forward_flashattn_hierarchical(
             print("\n" + "=" * 80)
             print("Hierarchical HiCI - Qwen3 (Optimized: Q=[chunk], K/V=[hici_prefix,chunk])")
             print("=" * 80)
-            print(f"  use_higher_global : {use_higher_global}")
-            print(f"  use_local_constructor  : {use_local_constructor}")
-            if use_higher_global and not use_local_constructor:
-                print("  Mode 1: Q=[chunk], K/V=[higher_global, chunk]")
-            elif not use_higher_global and use_local_constructor:
+            print(f"  use_global_context : {use_global_context}")
+            print(f"  use_local_repr  : {use_local_repr}")
+            if use_global_context and not use_local_repr:
+                print("  Mode 1: Q=[chunk], K/V=[global_context, chunk]")
+            elif not use_global_context and use_local_repr:
                 print("  Mode 2: Q=[chunk], K/V=[local_i, chunk]")
-            elif use_higher_global and use_local_constructor:
-                print("  Mode 3: Q=[chunk], K/V=[higher_global, local_i, chunk]")
+            elif use_global_context and use_local_repr:
+                print("  Mode 3: Q=[chunk], K/V=[global_context, local_i, chunk]")
             else:
                 print("  Baseline: Q=K/V=[chunk]")
 
@@ -977,7 +1006,7 @@ def forward_flashattn_hierarchical(
     chunk_masks_reshaped = attention_mask.view(bsz, num_groups, group_size)
 
     # ========== Step 2: Extract local memories ==========
-    if (use_higher_global or use_local_constructor) and hasattr(self, "local_constructor"):
+    if (use_global_context or use_local_repr) and hasattr(self, "local_constructor"):
         all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
 
         original_dtype = all_chunks.dtype
@@ -985,68 +1014,68 @@ def forward_flashattn_hierarchical(
             all_chunks = all_chunks.to(torch.bfloat16)
 
         attention_mask_chunks = chunk_masks_reshaped.view(bsz * num_groups, group_size)
-        all_local_mems = self.local_constructor(all_chunks, attention_mask_chunks)
+        all_local_repr = self.local_constructor(all_chunks, attention_mask_chunks)
 
         if original_dtype == torch.float32:
-            all_local_mems = all_local_mems.to(torch.float32)
+            all_local_repr = all_local_repr.to(torch.float32)
 
-        num_local_slots = all_local_mems.shape[1]
-        local_memories_stacked = all_local_mems.view(bsz, num_groups, num_local_slots, hidden_size)
+        num_local_slots = all_local_repr.shape[1]
+        local_repr_stacked = all_local_repr.view(bsz, num_groups, num_local_slots, hidden_size)
     else:
         num_local_slots = 0
-        local_memories_stacked = None
+        local_repr_stacked = None
 
     # ========== Step 3: Aggregate local slots into global context vectors ==========
     _causal_mode = CAUSAL_CONTEXT_MODE  # "none", "causal_gi", "causal_shift"
     _is_causal = _causal_mode in ("causal_gi", "causal_shift")
 
     if (
-        use_higher_global
+        use_global_context
         and hasattr(self, "global_integrator")
-        and local_memories_stacked is not None
+        and local_repr_stacked is not None
     ):
         if _is_causal and hasattr(self.global_integrator, "forward_causal"):
             # Causal mode: each segment gets its own G_i
-            higher_global_per_group = self.global_integrator.forward_causal(
-                local_memories_stacked
+            global_context_per_group = self.global_integrator.forward_causal(
+                local_repr_stacked
             )  # [bsz, num_groups, global_slots, hidden_size]
-            num_global_slots = higher_global_per_group.shape[2]
+            num_global_slots = global_context_per_group.shape[2]
 
             if _causal_mode == "causal_shift":
                 # option B (causal_shift): segment_i uses G_{i-1}; segment_0 gets zeros
                 zeros_g = torch.zeros(
                     bsz, 1, num_global_slots, hidden_size,
-                    device=higher_global_per_group.device,
-                    dtype=higher_global_per_group.dtype,
+                    device=global_context_per_group.device,
+                    dtype=global_context_per_group.dtype,
                 )
-                higher_global_per_group = torch.cat(
-                    [zeros_g, higher_global_per_group[:, :-1, :, :]], dim=1
+                global_context_per_group = torch.cat(
+                    [zeros_g, global_context_per_group[:, :-1, :, :]], dim=1
                 )
 
-            higher_global = None  # use per-group mode
+            global_context = None  # use per-group mode
         else:
             # Non-causal mode: all segments share a single G
-            higher_global = self.global_integrator(local_memories_stacked)
-            num_global_slots = higher_global.shape[1]
-            higher_global_per_group = None
+            global_context = self.global_integrator(local_repr_stacked)
+            num_global_slots = global_context.shape[1]
+            global_context_per_group = None
     else:
-        higher_global = None
-        higher_global_per_group = None
+        global_context = None
+        global_context_per_group = None
         num_global_slots = 0
 
     # causal_shift: also shift L_i so segment_i uses L_{i-1}
     if (
         _causal_mode == "causal_shift"
-        and use_local_constructor
-        and local_memories_stacked is not None
+        and use_local_repr
+        and local_repr_stacked is not None
     ):
         zeros_l = torch.zeros(
             bsz, 1, num_local_slots, hidden_size,
-            device=local_memories_stacked.device,
-            dtype=local_memories_stacked.dtype,
+            device=local_repr_stacked.device,
+            dtype=local_repr_stacked.dtype,
         )
-        local_memories_stacked = torch.cat(
-            [zeros_l, local_memories_stacked[:, :-1, :, :]], dim=1
+        local_repr_stacked = torch.cat(
+            [zeros_l, local_repr_stacked[:, :-1, :, :]], dim=1
         )
 
     # ========== Step 4: Q/K/V projections + QK-Norm + RoPE ==========
@@ -1064,42 +1093,42 @@ def forward_flashattn_hierarchical(
     # GQA: Q has num_heads, K/V have num_kv_heads. flash_attn handles GQA natively.
 
     # ========== Step 5: Project memories to K/V ==========
-    higher_global_k = higher_global_v = None
-    higher_global_k_per_group = higher_global_v_per_group = None
+    global_context_k = global_context_v = None
+    global_context_k_per_group = global_context_v_per_group = None
 
-    if use_higher_global and higher_global is not None:
+    if use_global_context and global_context is not None:
         # Non-causal mode: one G shared across all chunks
-        higher_global_k = (
-            self.k_proj(higher_global)
+        global_context_k = (
+            self.k_proj(global_context)
             .view(bsz, num_global_slots, num_kv_heads, head_dim)
             .transpose(1, 2)
         )
-        higher_global_v = (
-            self.v_proj(higher_global)
+        global_context_v = (
+            self.v_proj(global_context)
             .view(bsz, num_global_slots, num_kv_heads, head_dim)
             .transpose(1, 2)
         )
-    elif use_higher_global and higher_global_per_group is not None:
+    elif use_global_context and global_context_per_group is not None:
         # Causal mode: each chunk has its own G_i
-        # higher_global_per_group: [bsz, num_groups, global_slots, hidden_size]
-        hg_flat = higher_global_per_group.view(
+        # global_context_per_group: [bsz, num_groups, global_slots, hidden_size]
+        gc_flat = global_context_per_group.view(
             bsz * num_groups, num_global_slots, hidden_size
         )
-        hg_k_flat = (
-            self.k_proj(hg_flat)
+        gc_k_flat = (
+            self.k_proj(gc_flat)
             .view(bsz * num_groups, num_global_slots, num_kv_heads, head_dim)
             .transpose(1, 2)
         )
-        hg_v_flat = (
-            self.v_proj(hg_flat)
+        gc_v_flat = (
+            self.v_proj(gc_flat)
             .view(bsz * num_groups, num_global_slots, num_kv_heads, head_dim)
             .transpose(1, 2)
         )
         # [bsz*num_groups, num_kv_heads, global_slots, hd] -> [bsz, num_groups, num_kv_heads, global_slots, hd]
-        higher_global_k_per_group = hg_k_flat.view(
+        global_context_k_per_group = gc_k_flat.view(
             bsz, num_groups, num_kv_heads, num_global_slots, head_dim
         )
-        higher_global_v_per_group = hg_v_flat.view(
+        global_context_v_per_group = gc_v_flat.view(
             bsz, num_groups, num_kv_heads, num_global_slots, head_dim
         )
 
@@ -1108,8 +1137,8 @@ def forward_flashattn_hierarchical(
     key_chunks = key_states.view(bsz, num_kv_heads, num_groups, group_size, head_dim)
     value_chunks = value_states.view(bsz, num_kv_heads, num_groups, group_size, head_dim)
 
-    if use_local_constructor and local_memories_stacked is not None:
-        local_mems_flat = local_memories_stacked.view(bsz * num_groups, num_local_slots, hidden_size)
+    if use_local_repr and local_repr_stacked is not None:
+        local_mems_flat = local_repr_stacked.view(bsz * num_groups, num_local_slots, hidden_size)
         local_k_flat = (
             self.k_proj(local_mems_flat)
             .view(bsz * num_groups, num_local_slots, num_kv_heads, head_dim)
@@ -1132,9 +1161,9 @@ def forward_flashattn_hierarchical(
     )
 
     prefix_len = 0
-    if use_higher_global and hasattr(self, "global_integrator"):
+    if use_global_context and hasattr(self, "global_integrator"):
         prefix_len += num_global_slots
-    if use_local_constructor and hasattr(self, "local_constructor"):
+    if use_local_repr and hasattr(self, "local_constructor"):
         prefix_len += num_local_slots
     kv_len_per_chunk = prefix_len + group_size
 
@@ -1142,20 +1171,20 @@ def forward_flashattn_hierarchical(
         kv_components_k = []
         kv_components_v = []
 
-        if use_higher_global and higher_global_k is not None:
+        if use_global_context and global_context_k is not None:
             # Non-causal mode: all chunks share one G
-            higher_global_k_exp = higher_global_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-            higher_global_v_exp = higher_global_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
-            kv_components_k.append(higher_global_k_exp)
-            kv_components_v.append(higher_global_v_exp)
-        elif use_higher_global and higher_global_k_per_group is not None:
+            global_context_k_exp = global_context_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
+            global_context_v_exp = global_context_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1)
+            kv_components_k.append(global_context_k_exp)
+            kv_components_v.append(global_context_v_exp)
+        elif use_global_context and global_context_k_per_group is not None:
             # Causal mode: each chunk has its own G_i
-            # higher_global_k_per_group: [bsz, num_groups, nh, global_slots, hd]
+            # global_context_k_per_group: [bsz, num_groups, nh, global_slots, hd]
             # Transpose to: [bsz, nh, num_groups, global_slots, hd]
-            kv_components_k.append(higher_global_k_per_group.permute(0, 2, 1, 3, 4))
-            kv_components_v.append(higher_global_v_per_group.permute(0, 2, 1, 3, 4))
+            kv_components_k.append(global_context_k_per_group.permute(0, 2, 1, 3, 4))
+            kv_components_v.append(global_context_v_per_group.permute(0, 2, 1, 3, 4))
 
-        if use_local_constructor and local_k_all is not None:
+        if use_local_repr and local_k_all is not None:
             local_k_exp = local_k_all.permute(0, 2, 1, 3, 4)
             local_v_exp = local_v_all.permute(0, 2, 1, 3, 4)
             kv_components_k.append(local_k_exp)
@@ -1192,10 +1221,10 @@ def forward_flashattn_hierarchical(
     )
 
     offset = 0
-    if use_higher_global:
+    if use_global_context:
         all_masks_kv_stacked[:, :, offset:offset + num_global_slots] = 1
         offset += num_global_slots
-    if use_local_constructor:
+    if use_local_repr:
         all_masks_kv_stacked[:, :, offset:offset + num_local_slots] = 1
         offset += num_local_slots
     all_masks_kv_stacked[:, :, offset:offset + group_size] = chunk_masks_reshaped
@@ -1203,10 +1232,10 @@ def forward_flashattn_hierarchical(
     # causal_shift: segment_0 memory is zero-padded; mask it to avoid wasting attention mass
     if _causal_mode == "causal_shift":
         mem_offset = 0
-        if use_higher_global:
+        if use_global_context:
             all_masks_kv_stacked[:, 0, mem_offset : mem_offset + num_global_slots] = 0
             mem_offset += num_global_slots
-        if use_local_constructor:
+        if use_local_repr:
             all_masks_kv_stacked[:, 0, mem_offset : mem_offset + num_local_slots] = 0
 
     all_masks_kv_flat = all_masks_kv_stacked.reshape(bsz * num_groups, kv_len_per_chunk)
@@ -1272,10 +1301,10 @@ def forward_flashattn_hierarchical(
             offset = 0
             attn_to_global = 0.0
             attn_to_local = 0.0
-            if use_higher_global and num_global_slots > 0:
+            if use_global_context and num_global_slots > 0:
                 attn_to_global = attn_probs[:, :, :, offset:offset + num_global_slots].mean().item()
                 offset += num_global_slots
-            if use_local_constructor and num_local_slots > 0:
+            if use_local_repr and num_local_slots > 0:
                 attn_to_local = attn_probs[:, :, :, offset:offset + num_local_slots].mean().item()
                 offset += num_local_slots
             attn_to_tokens = attn_probs[:, :, :, offset:].mean().item()
@@ -1311,8 +1340,8 @@ def forward_flashattn_hierarchical_inference(
     attention_mask: Optional[torch.Tensor] = None,
     past_key_value=None,
     cache_position: Optional[torch.LongTensor] = None,
-    use_higher_global: bool = True,
-    use_local_constructor: bool = True,
+    use_global_context: bool = True,
+    use_local_repr: bool = True,
     **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
@@ -1377,8 +1406,8 @@ def forward_flashattn_hierarchical_inference(
             print("\n" + "=" * 80)
             print("Hierarchical HiCI INFERENCE - Qwen3 (with padding support)")
             print("=" * 80)
-            print(f"  use_higher_global : {use_higher_global}")
-            print(f"  use_local_constructor  : {use_local_constructor}")
+            print(f"  use_global_context : {use_global_context}")
+            print(f"  use_local_repr  : {use_local_repr}")
             print("=" * 80 + "\n", flush=True)
         self._hierarchical_inference_printed = True
 
@@ -1414,8 +1443,8 @@ def forward_flashattn_hierarchical_inference(
         num_groups = q_len // group_size
 
         if num_groups == 1:
-            use_higher_global = False
-            use_local_constructor = False
+            use_global_context = False
+            use_local_repr = False
 
     if not getattr(forward_flashattn_hierarchical_inference, "_prefill_printed", False):
         local_rank = dist.get_rank() if dist.is_initialized() else 0
@@ -1430,30 +1459,30 @@ def forward_flashattn_hierarchical_inference(
     chunk_masks_reshaped = attention_mask.view(bsz, num_groups, group_size)
 
     # ========== Step 2: Extract local memories ==========
-    if (use_higher_global or use_local_constructor) and hasattr(self, "local_constructor"):
+    if (use_global_context or use_local_repr) and hasattr(self, "local_constructor"):
         all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
         original_dtype = all_chunks.dtype
         if all_chunks.dtype == torch.float32:
             all_chunks = all_chunks.to(torch.bfloat16)
 
         attention_mask_chunks = chunk_masks_reshaped.view(bsz * num_groups, group_size)
-        all_local_mems = self.local_constructor(all_chunks, attention_mask_chunks)
+        all_local_repr = self.local_constructor(all_chunks, attention_mask_chunks)
 
         if original_dtype == torch.float32:
-            all_local_mems = all_local_mems.to(torch.float32)
+            all_local_repr = all_local_repr.to(torch.float32)
 
-        num_local_slots = all_local_mems.shape[1]
-        local_memories_stacked = all_local_mems.view(bsz, num_groups, num_local_slots, hidden_size)
+        num_local_slots = all_local_repr.shape[1]
+        local_repr_stacked = all_local_repr.view(bsz, num_groups, num_local_slots, hidden_size)
     else:
         num_local_slots = 0
-        local_memories_stacked = None
+        local_repr_stacked = None
 
     # ========== Step 3: Aggregate to higher-level global ==========
-    if use_higher_global and hasattr(self, "global_integrator") and local_memories_stacked is not None:
-        higher_global = self.global_integrator(local_memories_stacked)
-        num_global_slots = higher_global.shape[1]
+    if use_global_context and hasattr(self, "global_integrator") and local_repr_stacked is not None:
+        global_context = self.global_integrator(local_repr_stacked)
+        num_global_slots = global_context.shape[1]
     else:
-        higher_global = None
+        global_context = None
         num_global_slots = 0
 
     # ========== Step 4: Q/K/V projections + QK-Norm + RoPE ==========
@@ -1468,19 +1497,19 @@ def forward_flashattn_hierarchical_inference(
     # GQA: Q has num_heads, K/V have num_kv_heads. flash_attn handles GQA natively.
 
     # ========== Step 5: Project memories to K/V ==========
-    if use_higher_global and higher_global is not None:
-        higher_global_k = self.k_proj(higher_global).view(bsz, num_global_slots, num_kv_heads, head_dim).transpose(1, 2)
-        higher_global_v = self.v_proj(higher_global).view(bsz, num_global_slots, num_kv_heads, head_dim).transpose(1, 2)
+    if use_global_context and global_context is not None:
+        global_context_k = self.k_proj(global_context).view(bsz, num_global_slots, num_kv_heads, head_dim).transpose(1, 2)
+        global_context_v = self.v_proj(global_context).view(bsz, num_global_slots, num_kv_heads, head_dim).transpose(1, 2)
     else:
-        higher_global_k = higher_global_v = None
+        global_context_k = global_context_v = None
 
     # ========== Step 6: Reshape into chunks ==========
     query_chunks = query_states.view(bsz, num_heads, num_groups, group_size, head_dim)
     key_chunks = key_states.view(bsz, num_kv_heads, num_groups, group_size, head_dim)
     value_chunks = value_states.view(bsz, num_kv_heads, num_groups, group_size, head_dim)
 
-    if use_local_constructor and local_memories_stacked is not None:
-        local_mems_flat = local_memories_stacked.view(bsz * num_groups, num_local_slots, hidden_size)
+    if use_local_repr and local_repr_stacked is not None:
+        local_mems_flat = local_repr_stacked.view(bsz * num_groups, num_local_slots, hidden_size)
         local_k_flat = self.k_proj(local_mems_flat).view(bsz * num_groups, num_local_slots, num_kv_heads, head_dim).transpose(1, 2)
         local_v_flat = self.v_proj(local_mems_flat).view(bsz * num_groups, num_local_slots, num_kv_heads, head_dim).transpose(1, 2)
         local_k_all = local_k_flat.view(bsz, num_groups, num_kv_heads, num_local_slots, head_dim)
@@ -1493,9 +1522,9 @@ def forward_flashattn_hierarchical_inference(
     all_chunks_q_flat = query_chunks.permute(0, 2, 3, 1, 4).reshape(bsz * num_groups, group_size, num_heads, head_dim)
 
     prefix_len = 0
-    if use_higher_global and hasattr(self, "global_integrator"):
+    if use_global_context and hasattr(self, "global_integrator"):
         prefix_len += num_global_slots
-    if use_local_constructor and hasattr(self, "local_constructor"):
+    if use_local_repr and hasattr(self, "local_constructor"):
         prefix_len += num_local_slots
     kv_len_per_chunk = prefix_len + group_size
 
@@ -1503,11 +1532,11 @@ def forward_flashattn_hierarchical_inference(
         kv_components_k = []
         kv_components_v = []
 
-        if use_higher_global and higher_global_k is not None:
-            kv_components_k.append(higher_global_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1))
-            kv_components_v.append(higher_global_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1))
+        if use_global_context and global_context_k is not None:
+            kv_components_k.append(global_context_k.unsqueeze(2).expand(-1, -1, num_groups, -1, -1))
+            kv_components_v.append(global_context_v.unsqueeze(2).expand(-1, -1, num_groups, -1, -1))
 
-        if use_local_constructor and local_k_all is not None:
+        if use_local_repr and local_k_all is not None:
             kv_components_k.append(local_k_all.permute(0, 2, 1, 3, 4))
             kv_components_v.append(local_v_all.permute(0, 2, 1, 3, 4))
 
@@ -1536,10 +1565,10 @@ def forward_flashattn_hierarchical_inference(
     )
 
     offset = 0
-    if use_higher_global:
+    if use_global_context:
         all_masks_kv_stacked[:, :, offset:offset + num_global_slots] = 1
         offset += num_global_slots
-    if use_local_constructor:
+    if use_local_repr:
         all_masks_kv_stacked[:, :, offset:offset + num_local_slots] = 1
         offset += num_local_slots
     all_masks_kv_stacked[:, :, offset:offset + group_size] = chunk_masks_reshaped
@@ -1756,7 +1785,7 @@ def register_hici_to_qwen3_model(
     global_slots=4,
     num_heads=32,
     use_bottleneck=True,
-    bottleneck_dim=4096,
+    bottleneck_dim=512,
     use_local_constructor=True,
     use_global_integrator=True,
     use_local_constructor_flash=False,
@@ -1872,6 +1901,8 @@ def register_hici_to_qwen3_model(
                     num_heads=num_heads,
                     init_from_embeddings=embed_weight,
                     init_from_attn=attn if use_attn_init else None,
+                    use_bottleneck=use_bottleneck,
+                    bottleneck_dim=bottleneck_dim,
                 ).to(model_dtype)
             else:
                 # Default: use LocalConstructorMulti (consistent with llama_attn_hici.py)

@@ -129,7 +129,7 @@ class LayeredLRTrainer(Trainer):
                     print(f"\n  📊 HiCI Module Parameters Breakdown:")
                     print(f"  " + "-" * 68)
 
-                    if global_memory_count > 0:
+                    if local_constructor_count > 0:
                         print(f"    🧠 LocalConstructor:")
                         print(
                             f"       Count: {local_constructor_count:,} ({local_constructor_count / total_count * 100:.2f}%)"
@@ -138,13 +138,13 @@ class LayeredLRTrainer(Trainer):
                         print(f"    🧠 LocalConstructor: Not enabled (0 parameters)")
 
                     if hierarchical_count > 0:
-                        print(f"    🏗️  HierarchicalAggregator:")
+                        print(f"    🏗️  GlobalIntegrator:")
                         print(
                             f"       Count: {hierarchical_count:,} ({hierarchical_count / total_count * 100:.2f}%)"
                         )
                     else:
                         print(
-                            f"    🏗️  HierarchicalAggregator: Not enabled (0 parameters)"
+                            f"    🏗️  GlobalIntegrator: Not enabled (0 parameters)"
                         )
 
                     print(f"  " + "-" * 68)
@@ -268,7 +268,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether to use YaRN (Yet another RoPE extensioN) instead of PI. No Transformers upgrade needed."},
     )
     trainable_params: str = field(
-        default="embed,norm",
+        default="embed,norm,local_constructor,global_integrator",
         metadata={
             "help": "Additional trainable parameters except LoRA weights, if low rank training."
         },
@@ -280,9 +280,9 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     global_slots: int = field(
-        default=16,
+        default=4,
         metadata={
-            "help": "Number of Global Representation Slots for capturing document-level context (default: 16)."
+            "help": "Number of Global Representation Slots for capturing document-level context (default: 4)."
         },
     )
     use_local_constructor: bool = field(
@@ -298,7 +298,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether to use flash attn in LocalConstructorFlash."},
     )
     use_hierarchical_forward: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Whether to use the combined hierarchical forward (LocalConstructor + GlobalIntegrator)."},
     )
     use_llama_init: Optional[bool] = field(
@@ -308,7 +308,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     num_heads: int = field(
-        default=32,
+        default=8,
         metadata={"help": "Number of attention heads in HiCI module."},
     )
     use_bottleneck: bool = field(
@@ -318,7 +318,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     bottleneck_dim: int = field(
-        default=4096,
+        default=512,
         metadata={"help": "Bottleneck dimension for HiCI compression."},
     )
     shared_compress_dim: int = field(
@@ -765,17 +765,17 @@ def train():
             )
 
         if "HiCI Modules" in trainable_params_dict:
-            global_memory_count = 0
+            local_constructor_count = 0
             hierarchical_count = 0
             for n, p in model.named_parameters():
                 if p.requires_grad:
                     if "local_constructor" in n:
-                        global_memory_count += p.numel()
+                        local_constructor_count += p.numel()
                     elif "global_integrator" in n:
                         hierarchical_count += p.numel()
 
-            if global_memory_count > 0 or hierarchical_count > 0:
-                print(f"    {'└─ LocalConstructor':20s}: {global_memory_count:15,} params")
+            if local_constructor_count > 0 or hierarchical_count > 0:
+                print(f"    {'└─ LocalConstructor':20s}: {local_constructor_count:15,} params")
                 print(
                     f"    {'└─ HierarchicalAgg':20s}: {hierarchical_count:15,} params"
                 )
@@ -788,7 +788,7 @@ def train():
 
     # Warning if HiCI modules are not properly configured
     has_memory_in_trainable = "local_constructor" in training_args.trainable_params
-    has_hierarchical_in_trainable = "hierarchical" in training_args.trainable_params
+    has_hierarchical_in_trainable = "global_integrator" in training_args.trainable_params
     has_hici_params = "HiCI Modules" in trainable_params_dict
 
     if rank == 0:
@@ -810,7 +810,7 @@ def train():
                 print(
                     "\n⚠️  WARNING: Using GlobalIntegrator but 'global_integrator' not in --trainable_params!"
                 )
-                print("    HierarchicalAggregator parameters may not be trained!")
+                print("    GlobalIntegrator parameters may not be trained!")
                 print(
                     "    Recommended: '--trainable_params \"embed,norm,local_constructor,global_integrator\"'"
                 )
@@ -919,7 +919,18 @@ def train():
             torch.distributed.barrier()
     # ========================================================================
 
-    trainer.train()
+    # Detect latest checkpoint for proper resume (optimizer + scheduler state)
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir):
+        import glob
+        checkpoint_dirs = sorted(
+            glob.glob(os.path.join(training_args.output_dir, "checkpoint-*")),
+            key=lambda x: int(x.split("-")[-1])
+        )
+        if checkpoint_dirs:
+            last_checkpoint = checkpoint_dirs[-1]
+
+    trainer.train(resume_from_checkpoint=last_checkpoint)
     trainer.save_state()
     trainer.save_model(output_dir=training_args.output_dir)
 

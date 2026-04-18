@@ -13,12 +13,12 @@ fuser -k 38493/tcp 2>/dev/null || echo "Port 38493 not in use"
 sleep 2
 pkill -9 -f "eval_distributed_hici_qwen3.py"
 
-# BASE_MODEL="./models/Qwen3-8B"
-BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
+BASE_MODEL="./models/Qwen3-8B"
+# BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
 CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k"
 nproc_per_node=4
 DATA_PATH="./data/pg19_qwen3/test.bin" #validation
-SEQ_LEN=49152  # 2048 4096 8192 16384 32768 49152
+SEQ_LEN=2048  # 2048 4096 8192 16384 32768 49152
 CONTEXT_SIZE=40960
 
 # HiCI 参数（必须和训练时一致）
@@ -29,6 +29,8 @@ global_slots=4
 num_heads=8
 use_bottleneck=True
 bottleneck_dim=512
+shared_compress_dim=128
+use_attn_init=False
 use_local_constructor_flash=False
 use_hierarchical_forward=True
 
@@ -77,3 +79,5 @@ torchrun --nproc_per_node=$nproc_per_node \
     --eval_mode $eval_mode \
     --use_local_constructor_flash $use_local_constructor_flash \
     --use_hierarchical_forward $use_hierarchical_forward \
+    --shared_compress_dim $shared_compress_dim \
+    --use_attn_init $use_attn_init \

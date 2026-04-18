@@ -27,12 +27,13 @@ DATA_PATH="./data/pg19/test.bin"
 SEQ_LEN=2048  # 2048 4096 8192 16384 32768 65536 100000
 CONTEXT_SIZE=8192
 use_local_constructor=True
-use_global_integrator=True  # 是否使用高层压缩HierarchicalMemoryAggregatorSingleHead
+use_global_integrator=True
 NUM_LOCAL_SLOTS=8
 global_slots=4  # Global Representation Slots
 num_heads=8  # number of attention heads
 use_bottleneck=True
 bottleneck_dim=512
+shared_compress_dim=128
 eval_mode=None   # None (chunked, same as training) or "full" (full attention, no HiCI)
 
 # LocalConstructor 类型选择
@@ -81,6 +82,7 @@ torchrun --nproc_per_node=$nproc_per_node \
     --eval_mode $eval_mode \
     --use_local_constructor_flash $use_local_constructor_flash \
     --use_hierarchical_forward $use_hierarchical_forward \
+    --shared_compress_dim $shared_compress_dim \
 
 
 

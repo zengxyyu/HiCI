@@ -182,7 +182,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether use low rank adaptation for training."},
     )
     trainable_params: str = field(
-        default="embed,norm",
+        default="embed,norm,local_constructor,global_integrator",
         metadata={"help": "Additional trainable parameters except LoRA weights."},
     )
     num_local_slots: int = field(
@@ -202,8 +202,8 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether to use GlobalIntegrator."},
     )
     use_local_constructor_flash: Optional[bool] = field(
-        default=True,
-        metadata={"help": "Whether to use LocalConstructorFlash (flash-attn, reuses K/V projections) instead of LocalConstructorMulti (standard PyTorch)."},
+        default=False,
+        metadata={"help": "Whether to use LocalConstructorFlash (flash-attn) instead of LocalConstructorMulti (standard PyTorch)."},
     )
     use_hierarchical_forward: Optional[bool] = field(
         default=True,
@@ -214,7 +214,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Initialize HiCI Q/K/V projections from pretrained weights."},
     )
     num_heads: int = field(
-        default=32,
+        default=8,
         metadata={"help": "Number of attention heads in HiCI module."},
     )
     use_bottleneck: bool = field(
@@ -222,8 +222,12 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Whether to use bottleneck in GlobalIntegrator."},
     )
     bottleneck_dim: int = field(
-        default=4096,
+        default=512,
         metadata={"help": "Bottleneck dimension for GlobalIntegrator compression."},
+    )
+    shared_compress_dim: int = field(
+        default=128,
+        metadata={"help": "Shared compressor intermediate dim for GlobalIntegratorShared (7B/8B: 128, 13B: 160)."},
     )
     hici_lr: Optional[float] = field(
         default=None,
@@ -426,6 +430,7 @@ def train():
         use_global_integrator=training_args.use_global_integrator,
         use_local_constructor_flash=training_args.use_local_constructor_flash,
         use_attn_init=training_args.use_attn_init,
+        shared_compress_dim=training_args.shared_compress_dim,
     )
 
     rank = int(os.environ.get("RANK", -1))

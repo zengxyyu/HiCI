@@ -12,7 +12,6 @@
 # limitations under the License.
 
 import os
-import math
 import torch
 import argparse
 import transformers
@@ -65,7 +64,7 @@ def main(args):
     if args.context_size > 0:
         orig_ctx_len = getattr(config, "max_position_embeddings", None)
         if orig_ctx_len and args.context_size > orig_ctx_len:
-            scaling_factor = float(math.ceil(args.context_size / orig_ctx_len))
+            scaling_factor = args.context_size / orig_ctx_len
             config.rope_scaling = {"type": "linear", "factor": scaling_factor}
             print(f"RoPE scaling: factor={scaling_factor} ({orig_ctx_len} → {args.context_size})")
 

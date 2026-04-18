@@ -6,10 +6,10 @@
 # Usage:
 #   python merge_lora_weights_hici_qwen3.py \
 #       --base_model ./models/Qwen3-8B \
-#       --peft_model ./checkpoints/qwen3-8b-hici-sft/checkpoint-1000 \
-#       --save_path ./models/merged_models/Qwen3-8b-HiCI-SFT \
+#       --peft_model ./checkpoints/Qwen3-8b-HiCI-48k-1000steps \
+#       --save_path ./models/merged/Qwen3-8b-HiCI-48k-merged \
 #       --num_local_slots 8 --global_slots 4 --num_heads 8 \
-#       --bottleneck_dim 512
+#       --bottleneck_dim 512 --context_size 49152
 
 import os
 import torch
@@ -77,8 +77,7 @@ def main(args):
     if args.context_size > 0:
         orig_ctx_len = getattr(config, "max_position_embeddings", None)
         if orig_ctx_len and args.context_size > orig_ctx_len:
-            import math
-            scaling_factor = float(math.ceil(args.context_size / orig_ctx_len))
+            scaling_factor = args.context_size / orig_ctx_len
             config.rope_scaling = {"type": "linear", "factor": scaling_factor}
             print(f"  Applied RoPE scaling: factor={scaling_factor} ({orig_ctx_len} -> {args.context_size})")
     model = transformers.AutoModelForCausalLM.from_pretrained(

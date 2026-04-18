@@ -175,6 +175,7 @@ class EvalArguments:
     num_heads: int = field(default=8)
     use_bottleneck: bool = field(default=True)
     bottleneck_dim: int = field(default=512)
+    shared_compress_dim: int = field(default=128, metadata={"help": "Shared compressor dim for GlobalIntegratorShared (7B/8B: 128, 13B: 160)."})
     eval_mode: Optional[str] = field(
         default=None,
         metadata={"help": "Evaluation mode: None (chunked), 'full', 'full_hierarchical'."},
@@ -235,7 +236,7 @@ def run_eval(args: EvalArguments):
     context_size = args.context_size if args.context_size > 0 else args.seq_len
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     if orig_ctx_len and context_size > orig_ctx_len:
-        scaling_factor = float(math.ceil(context_size / orig_ctx_len))
+        scaling_factor = context_size / orig_ctx_len
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
 
     # Load model
@@ -290,6 +291,7 @@ def run_eval(args: EvalArguments):
             use_global_integrator=args.use_global_integrator,
             use_local_constructor_flash=args.use_local_constructor_flash,
             use_attn_init=args.use_attn_init,
+            shared_compress_dim=args.shared_compress_dim,
         )
 
         # Convert HiCI modules to eval dtype

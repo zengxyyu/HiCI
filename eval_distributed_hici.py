@@ -213,13 +213,13 @@ class EvalArguments:
     num_local_slots: int = field(
         default=8,
         metadata={
-            "help": "Number of Global Representation Slots (must match training config)."
+            "help": "Number of Local Representation Slots (must match training config)."
         },
     )
     global_slots: int = field(
-        default=16,
+        default=4,
         metadata={
-            "help": "Number of Global Representation Slots for capturing document-level context (default: 16)."
+            "help": "Number of Global Representation Slots for capturing document-level context (default: 4)."
         },
     )
     use_local_constructor: bool = field(
@@ -249,8 +249,12 @@ class EvalArguments:
         },
     )
     bottleneck_dim: int = field(
-        default=4096,
+        default=512,
         metadata={"help": "Bottleneck dimension for HiCI compression."},
+    )
+    shared_compress_dim: int = field(
+        default=128,
+        metadata={"help": "Shared compressor intermediate dim for GlobalIntegratorShared (7B: 128, 13B: 160)."},
     )
     recurrence_size: Optional[int] = field(
         default=128,
@@ -359,6 +363,7 @@ def run_eval(args: EvalArguments):
         use_local_constructor=args.use_local_constructor,
         use_global_integrator=args.use_global_integrator,
         use_local_constructor_flash=args.use_local_constructor_flash,
+        shared_compress_dim=args.shared_compress_dim,
     )
 
     # CRITICAL: Convert local_constructor and global_integrator to the same dtype as the model (fp16)

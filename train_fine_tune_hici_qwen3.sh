@@ -21,6 +21,7 @@ global_slots=4        # HiCI global context slots
 num_heads=8            # HiCI HiCI module attention heads
 use_bottleneck=True
 bottleneck_dim=512
+shared_compress_dim=128
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
 
 # HiCI module and forward function
@@ -96,6 +97,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_heads $num_heads \
       --use_bottleneck $use_bottleneck \
       --bottleneck_dim $bottleneck_dim \
+      --shared_compress_dim $shared_compress_dim \
       --use_local_constructor_flash $use_local_constructor_flash \
       --use_attn_init $use_attn_init \
       --use_hierarchical_forward $use_hierarchical_forward \

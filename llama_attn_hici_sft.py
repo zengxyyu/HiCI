@@ -41,7 +41,7 @@ sft_group_size = 8192  # Fixed group size for SFT (handles irregular sequence le
 # ============================================================================
 # Controls whether the KV cache includes HiCI memory slots during decoding.
 #
-# True:  KV cache = [higher_global, local_slots, tokens]
+# True:  KV cache = [global_context, local_slots, tokens]
 #        - HiCI slots remain accessible during token-by-token decoding.
 #        - attention_mask must be extended to cover the prefixed slot positions.
 #
@@ -119,12 +119,12 @@ class LocalConstructor(nn.Module):
         )  # [bsz, num_slots, hidden_size]
 
         # Cross-attention: memory attends to full sequence
-        Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
+        Q_slots = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
         K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, hidden_size]
         V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, hidden_size]
 
         # Compute attention scores
-        scores = torch.matmul(Q_mem, K_seq.transpose(-2, -1)) / math.sqrt(
+        scores = torch.matmul(Q_slots, K_seq.transpose(-2, -1)) / math.sqrt(
             self.hidden_size
         )
         attn_weights = torch.softmax(scores, dim=-1)  # [bsz, num_slots, seq_len]
@@ -155,9 +155,9 @@ class LocalConstructorMulti(nn.Module):
         num_local_slots: Number of learnable query slots M (default: 8)
         num_heads: Number of attention heads (default: 32)
         init_from_embeddings: Optional pretrained embeddings for slot initialization
-        init_from_llama_attn: Optional LlamaAttention layer for warm-starting Q/K/V projections
+        init_from_attn: Optional LlamaAttention layer for warm-starting Q/K/V projections
         use_bottleneck: Whether to apply bottleneck compression (default: True)
-        bottleneck_dim: Bottleneck intermediate dimension (default: 2048)
+        bottleneck_dim: Bottleneck intermediate dimension (default: 512)
     """
 
     # Class-level flag: print initialization info only once
@@ -169,9 +169,9 @@ class LocalConstructorMulti(nn.Module):
         num_local_slots=8,
         num_heads=32,
         init_from_embeddings=None,
-        init_from_llama_attn=None,
+        init_from_attn=None,
         use_bottleneck: Optional[bool] = True,
-        bottleneck_dim: Optional[int] = 2048,
+        bottleneck_dim: Optional[int] = 512,
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -243,13 +243,13 @@ class LocalConstructorMulti(nn.Module):
 
         # Optional warm-start: copy Q/K/V projections from pretrained LLaMA attention weights.
         # Only applicable when not using bottleneck (dimensions must match).
-        if init_from_llama_attn is not None and not use_bottleneck:
+        if init_from_attn is not None and not use_bottleneck:
             rank = dist.get_rank() if dist.is_initialized() else 0
             layer_idx = getattr(self, "layer_idx", 0)
             with torch.no_grad():
-                self.q_proj.weight.copy_(init_from_llama_attn.q_proj.weight)
-                self.k_proj.weight.copy_(init_from_llama_attn.k_proj.weight)
-                self.v_proj.weight.copy_(init_from_llama_attn.v_proj.weight)
+                self.q_proj.weight.copy_(init_from_attn.q_proj.weight)
+                self.k_proj.weight.copy_(init_from_attn.k_proj.weight)
+                self.v_proj.weight.copy_(init_from_attn.v_proj.weight)
             if rank == 0 and layer_idx == 0:
                 print(
                     f"LocalConstructorMulti: Q/K/V projections initialized from LLaMA pretrained weights"
@@ -277,26 +277,26 @@ class LocalConstructorMulti(nn.Module):
         )  # [bsz, num_slots, hidden_size]
 
         # Cross-attention projections to effective dimension (bottleneck or full)
-        Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, effective_dim]
+        Q_slots = self.q_proj(slots_input)  # [bsz, num_slots, effective_dim]
         K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, effective_dim]
         V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, effective_dim]
 
         # Reshape for multi-head attention: [bsz, seqlen, num_heads, effective_head_dim]
-        Q_mem = Q_mem.view(
+        Q_slots = Q_slots.view(
             bsz, self.num_local_slots, self.num_heads, self.effective_head_dim
         )
         K_seq = K_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
         V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.effective_head_dim)
 
         # Transpose for attention: [bsz, num_heads, seqlen, head_dim]
-        Q_mem = Q_mem.transpose(1, 2)  # [bsz, num_heads, num_slots, effective_head_dim]
+        Q_slots = Q_slots.transpose(1, 2)  # [bsz, num_heads, num_slots, effective_head_dim]
         K_seq = K_seq.transpose(1, 2)  # [bsz, num_heads, seq_len, effective_head_dim]
         V_seq = V_seq.transpose(1, 2)  # [bsz, num_heads, seq_len, effective_head_dim]
 
         # Compute attention scores: Q @ K^T
         # [bsz, num_heads, num_slots, effective_head_dim] @ [bsz, num_heads, effective_head_dim, seq_len]
         # -> [bsz, num_heads, num_slots, seq_len]
-        scores = torch.matmul(Q_mem, K_seq.transpose(-2, -1)) / math.sqrt(
+        scores = torch.matmul(Q_slots, K_seq.transpose(-2, -1)) / math.sqrt(
             self.effective_head_dim
         )
 
@@ -409,12 +409,12 @@ class LocalConstructorFlash(nn.Module):
         )  # [bsz, num_slots, hidden_size]
 
         # Cross-attention projections
-        Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
+        Q_slots = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
         K_seq = self.k_proj(hidden_states)  # [bsz, seq_len, hidden_size]
         V_seq = self.v_proj(hidden_states)  # [bsz, seq_len, hidden_size]
 
         # Reshape for multi-head attention: [bsz, seqlen, num_heads, head_dim]
-        Q_mem = Q_mem.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
+        Q_slots = Q_slots.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
         K_seq = K_seq.view(bsz, seq_len, self.num_heads, self.head_dim)
         V_seq = V_seq.view(bsz, seq_len, self.num_heads, self.head_dim)
 
@@ -437,7 +437,7 @@ class LocalConstructorFlash(nn.Module):
             )
 
             # Q has no padding; flatten to [bsz * num_slots, num_heads, head_dim]
-            q_unpad = rearrange(Q_mem, "b s h d -> (b s) h d")
+            q_unpad = rearrange(Q_slots, "b s h d -> (b s) h d")
 
             # cu_seqlens_q: cumulative slot counts per sample, e.g., [0, 16, 32] for bsz=2, num_slots=16
             cu_seqlens_q = torch.arange(
@@ -469,7 +469,7 @@ class LocalConstructorFlash(nn.Module):
         else:
             # No padding: use the simpler flash_attn_func directly
             global_context = flash_attn_func(
-                Q_mem,  # [bsz, num_slots, num_heads, head_dim]
+                Q_slots,  # [bsz, num_slots, num_heads, head_dim]
                 K_seq,  # [bsz, seq_len, num_heads, head_dim]
                 V_seq,  # [bsz, seq_len, num_heads, head_dim]
                 dropout_p=0.0,
@@ -557,10 +557,10 @@ class LocalConstructorFlashPlus(nn.Module):
         )  # [bsz, num_slots, hidden_size]
 
         # Project slot embeddings to Q; K/V are passed in directly
-        Q_mem = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
+        Q_slots = self.q_proj(slots_input)  # [bsz, num_slots, hidden_size]
 
         # Reshape Q for multi-head attention: [bsz, num_slots, num_heads, head_dim]
-        Q_mem = Q_mem.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
+        Q_slots = Q_slots.view(bsz, self.num_local_slots, self.num_heads, self.head_dim)
 
         # K/V are already in the correct shape: [bsz, seq_len, num_heads, head_dim]
         K_seq = key_states
@@ -585,7 +585,7 @@ class LocalConstructorFlashPlus(nn.Module):
             )
 
             # Q has no padding, flatten: [bsz, num_slots, h, d] -> [bsz * num_slots, h, d]
-            q_unpad = rearrange(Q_mem, "b s h d -> (b s) h d")
+            q_unpad = rearrange(Q_slots, "b s h d -> (b s) h d")
 
             # cu_seqlens_q: cumulative slot counts per sample
             cu_seqlens_q = torch.arange(
@@ -615,7 +615,7 @@ class LocalConstructorFlashPlus(nn.Module):
         else:
             # No padding: use the simpler flash_attn_func directly
             global_context = flash_attn_func(
-                Q_mem,  # [bsz, num_slots, num_heads, head_dim]
+                Q_slots,  # [bsz, num_slots, num_heads, head_dim]
                 K_seq,  # [bsz, seq_len, num_heads, head_dim]
                 V_seq,  # [bsz, seq_len, num_heads, head_dim]
                 dropout_p=0.0,
@@ -649,7 +649,7 @@ class GlobalIntegrator(nn.Module):
         The compressed global vectors are projected back to hidden_size with a learned
         scaling factor (via softplus to ensure positivity).
 
-    Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
+    Input:  local_repr [bsz, num_chunks, local_slots, hidden_size]
     Output: global_context  [bsz, global_slots, hidden_size]
 
     Parameter count (hidden_size=4096, compress_dim=512, global_slots=4):
@@ -786,18 +786,18 @@ class GlobalIntegrator(nn.Module):
             )
             GlobalIntegrator._init_msg_printed = True
 
-    def forward(self, local_memories: torch.Tensor) -> torch.Tensor:
+    def forward(self, local_repr: torch.Tensor) -> torch.Tensor:
         """
         Aggregate local slot representations into K global context vectors.
 
         Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
+            local_repr: [bsz, num_chunks, local_slots, hidden_size]
 
         Returns:
             G: [bsz, global_slots, hidden_size]
 
         Data flow:
-            local_memories [bsz, C, L, H]
+            local_repr [bsz, C, L, H]
                 → flatten to all_local [bsz, C*L, H]
                 → 5 statistics [bsz, H] each
                 → compress each to [bsz, D]
@@ -805,11 +805,11 @@ class GlobalIntegrator(nn.Module):
                 → lightweight MHA → G_compressed [bsz, K, D]
                 → expand + scale → G [bsz, K, H]
         """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
+        bsz, num_chunks, local_slots, hidden_size = local_repr.shape
 
         # ========== Stage 1: statistical extraction and compression ==========
         # Flatten local slots across all chunks: [bsz, num_chunks * local_slots, hidden_size]
-        all_local = local_memories.reshape(bsz, -1, hidden_size)
+        all_local = local_repr.reshape(bsz, -1, hidden_size)
 
         # Five statistics, each [bsz, hidden_size]
         mean_pool = all_local.mean(dim=1)
@@ -886,7 +886,7 @@ class GlobalIntegratorShared(nn.Module):
         Expansion layer:      512 × 4096           = 2.097M
         Total:                ~4.0M / layer  (vs. ~13.7M for GlobalIntegrator, –71%)
 
-    Input:  local_memories [bsz, num_chunks, local_slots, hidden_size]
+    Input:  local_repr [bsz, num_chunks, local_slots, hidden_size]
     Output: global_context  [bsz, global_slots, hidden_size]
     """
 
@@ -1048,18 +1048,18 @@ class GlobalIntegratorShared(nn.Module):
             )
             GlobalIntegratorShared._init_msg_printed = True
 
-    def forward(self, local_memories: torch.Tensor) -> torch.Tensor:
+    def forward(self, local_repr: torch.Tensor) -> torch.Tensor:
         """
         Aggregate local slot representations into K global context vectors.
 
         Args:
-            local_memories: [bsz, num_chunks, local_slots, hidden_size]
+            local_repr: [bsz, num_chunks, local_slots, hidden_size]
 
         Returns:
             G: [bsz, global_slots, hidden_size]
 
         Data flow:
-            local_memories [bsz, C, L, H]
+            local_repr [bsz, C, L, H]
                 → flatten to all_local [bsz, C*L, H]
                 → 5 statistics [bsz, H] each
                 → shared_compressor → [bsz, 5, shared_compress_dim]
@@ -1067,10 +1067,10 @@ class GlobalIntegratorShared(nn.Module):
                 → lightweight MHA  → G_compressed [bsz, K, compress_dim]
                 → expand + scale   → G [bsz, K, H]
         """
-        bsz, num_chunks, local_slots, hidden_size = local_memories.shape
+        bsz, num_chunks, local_slots, hidden_size = local_repr.shape
 
         # ========== Stage 1a: statistical extraction ==========
-        all_local = local_memories.reshape(bsz, -1, hidden_size)
+        all_local = local_repr.reshape(bsz, -1, hidden_size)
 
         # Five statistics, each [bsz, hidden_size]
         mean_pool = all_local.mean(dim=1)
@@ -1152,8 +1152,8 @@ def forward_flashattn_hierarchical(
     output_attentions: bool = False,
     use_cache: bool = False,
     padding_mask: Optional[torch.LongTensor] = None,
-    use_higher_global: bool = True,
-    use_local_slots: bool = True,
+    use_global_context: bool = True,
+    use_local_repr: bool = True,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI hierarchical attention — SFT training forward pass (no KV-cache recurrence).
@@ -1168,14 +1168,14 @@ def forward_flashattn_hierarchical(
                                K/V = [global_context?, local_slots?, chunk tokens]
 
     Attention layout:
-        Mode 1 (global only): Q=[chunk], K/V=[higher_global, chunk]
+        Mode 1 (global only): Q=[chunk], K/V=[global_context, chunk]
         Mode 2 (local only):  Q=[chunk], K/V=[local_i, chunk]
-        Mode 3 (full HiCI):   Q=[chunk], K/V=[higher_global, local_i, chunk]
+        Mode 3 (full HiCI):   Q=[chunk], K/V=[global_context, local_i, chunk]
         Baseline:             Q=K/V=[chunk]
 
     Args:
-        use_higher_global: include GlobalIntegrator output in K/V (default: True)
-        use_local_slots: prepend per-segment LocalConstructor slots to K/V (default: True)
+        use_global_context: include GlobalIntegrator output in K/V (default: True)
+        use_local_repr: prepend per-segment LocalConstructor slots to K/V (default: True)
     """
     if not self.training:
         warnings.warn(
@@ -1198,15 +1198,15 @@ def forward_flashattn_hierarchical(
             print("\n" + "=" * 80)
             print("HiCI Hierarchical (Optimized: Q=[chunk], K/V=[hici_slots,chunk])")
             print("=" * 80)
-            print(f"  use_higher_global : {use_higher_global}")
-            print(f"  use_local_slots  : {use_local_slots}")
+            print(f"  use_global_context : {use_global_context}")
+            print(f"  use_local_repr  : {use_local_repr}")
 
-            if use_higher_global and not use_local_slots:
-                print("  Mode 1: Q=[chunk], K/V=[higher_global, chunk]")
-            elif not use_higher_global and use_local_slots:
+            if use_global_context and not use_local_repr:
+                print("  Mode 1: Q=[chunk], K/V=[global_context, chunk]")
+            elif not use_global_context and use_local_repr:
                 print("  Mode 2: Q=[chunk], K/V=[local_i, chunk]")
-            elif use_higher_global and use_local_slots:
-                print("  Mode 3: Q=[chunk], K/V=[higher_global, local_i, chunk]")
+            elif use_global_context and use_local_repr:
+                print("  Mode 3: Q=[chunk], K/V=[global_context, local_i, chunk]")
             else:
                 print("  Baseline: Q=K/V=[chunk]")
 
@@ -1271,36 +1271,36 @@ def forward_flashattn_hierarchical(
     chunk_masks_reshaped = attention_mask.view(bsz, num_groups, group_size)
 
     # ========== Step 2: Local Construction — extract M local slot representations per chunk ==========
-    if (use_higher_global or use_local_slots) and hasattr(self, "local_constructor"):
+    if (use_global_context or use_local_repr) and hasattr(self, "local_constructor"):
         # Batch all chunks together for parallel processing
         all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
 
         # [bsz, num_groups, group_size] -> [bsz * num_groups, group_size]
         attention_mask_chunks = chunk_masks_reshaped.view(bsz * num_groups, group_size)
-        all_local_mems = self.local_constructor(
+        all_local_repr = self.local_constructor(
             all_chunks, attention_mask_chunks
         )  # [bsz * num_groups, num_slots, hidden_size]
 
         # Reshape back: [bsz, num_groups, num_slots, hidden_size]
-        num_local_slots = all_local_mems.shape[1]
-        local_memories_stacked = all_local_mems.view(
+        num_local_slots = all_local_repr.shape[1]
+        local_repr_stacked = all_local_repr.view(
             bsz, num_groups, num_local_slots, hidden_size
         )
     else:
         num_local_slots = 0
-        local_memories_stacked = None
+        local_repr_stacked = None
 
     # ========== Step 3: Global Integration — aggregate local slots into K global context vectors ==========
     if (
-        use_higher_global
+        use_global_context
         and hasattr(self, "global_integrator")
-        and local_memories_stacked is not None
+        and local_repr_stacked is not None
     ):
-        higher_global = self.global_integrator(local_memories_stacked)
+        global_context = self.global_integrator(local_repr_stacked)
         # [bsz, global_slots, hidden_size]
-        num_global_slots = higher_global.shape[1]
+        num_global_slots = global_context.shape[1]
     else:
-        higher_global = None
+        global_context = None
         num_global_slots = 0
 
     # ========== Step 4: Standard Q/K/V projections ==========
@@ -1341,24 +1341,24 @@ def forward_flashattn_hierarchical(
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-    # ========== Step 5: Project memories to Q/K/V ==========
-    # Higher-level global memory
-    if use_higher_global and higher_global is not None:
-        higher_global_k = (
-            self.k_proj(higher_global)
+    # ========== Step 5: Project G and {Li} to K/V ==========
+    # Global context G (output of Global Integration)
+    if use_global_context and global_context is not None:
+        global_context_k = (
+            self.k_proj(global_context)
             .view(bsz, num_global_slots, self.num_key_value_heads, self.head_dim)
             .transpose(1, 2)
         )
-        higher_global_v = (
-            self.v_proj(higher_global)
+        global_context_v = (
+            self.v_proj(global_context)
             .view(bsz, num_global_slots, self.num_key_value_heads, self.head_dim)
             .transpose(1, 2)
         )
         # Repeat k/v heads
-        higher_global_k = repeat_kv(higher_global_k, self.num_key_value_groups)
-        higher_global_v = repeat_kv(higher_global_v, self.num_key_value_groups)
+        global_context_k = repeat_kv(global_context_k, self.num_key_value_groups)
+        global_context_v = repeat_kv(global_context_v, self.num_key_value_groups)
     else:
-        higher_global_k = higher_global_v = None
+        global_context_k = global_context_v = None
 
     # ========== Step 6: Reshape into chunks ==========
     query_chunks = query_states.view(
@@ -1372,10 +1372,10 @@ def forward_flashattn_hierarchical(
     )
 
     # Local memories for each chunk (if needed)
-    # Project local slot memories to K/V only; Q is not needed for memory slots
-    if use_local_slots and local_memories_stacked is not None:
+    # Project local repr {Li} to K/V only; Q is derived from segment tokens
+    if use_local_repr and local_repr_stacked is not None:
         # Reshape: [bsz, num_groups, num_slots, hidden] -> [bsz*num_groups, num_slots, hidden]
-        local_mems_flat = local_memories_stacked.view(
+        local_mems_flat = local_repr_stacked.view(
             bsz * num_groups, num_local_slots, hidden_size
         )
 
@@ -1424,9 +1424,9 @@ def forward_flashattn_hierarchical(
 
     # Compute total K/V length: prefix (memory slots) + chunk tokens
     prefix_len = 0
-    if use_higher_global:
+    if use_global_context:
         prefix_len += num_global_slots
-    if use_local_slots:
+    if use_local_repr:
         prefix_len += num_local_slots
     kv_len_per_chunk = prefix_len + group_size
 
@@ -1453,19 +1453,19 @@ def forward_flashattn_hierarchical(
 
         offset = 0
         # Fill global context vectors (shared across all chunks)
-        if use_higher_global and higher_global_k is not None:
-            # higher_global_k: [bsz, nh, num_global_slots, hd]
+        if use_global_context and global_context_k is not None:
+            # global_context_k: [bsz, nh, num_global_slots, hd]
             # Broadcast to all chunks: [bsz, nh, num_groups, num_global_slots, hd]
             all_k[:, :, :, offset : offset + num_global_slots, :] = (
-                higher_global_k.unsqueeze(2)
+                global_context_k.unsqueeze(2)
             )
             all_v[:, :, :, offset : offset + num_global_slots, :] = (
-                higher_global_v.unsqueeze(2)
+                global_context_v.unsqueeze(2)
             )
             offset += num_global_slots
 
         # Fill local slot memories (per-chunk)
-        if use_local_slots and local_k_all is not None:
+        if use_local_repr and local_k_all is not None:
             # local_k_all: [bsz, num_groups, nh, num_local_slots, hd]
             # Transpose to: [bsz, nh, num_groups, num_local_slots, hd]
             all_k[:, :, :, offset : offset + num_local_slots, :] = local_k_all.permute(
@@ -1513,10 +1513,10 @@ def forward_flashattn_hierarchical(
     )
 
     offset = 0
-    if use_higher_global:
+    if use_global_context:
         all_masks_kv_stacked[:, :, offset : offset + num_global_slots] = 1
         offset += num_global_slots
-    if use_local_slots:
+    if use_local_repr:
         all_masks_kv_stacked[:, :, offset : offset + num_local_slots] = 1
         offset += num_local_slots
     all_masks_kv_stacked[:, :, offset : offset + group_size] = chunk_masks_reshaped
@@ -2001,7 +2001,7 @@ def forward_hici_sft_inference(
     1. Prefill (q_len > 1, past_key_value is None):
        - HiCI hierarchical attention consistent with training.
        - The entire sequence is treated as one chunk (group_size = q_len).
-       - Mode 3: Q=[chunk], K/V=[higher_global, local_slots, chunk]
+       - Mode 3: Q=[chunk], K/V=[global_context, local_slots, chunk]
 
     2. Decode (q_len == 1 or past_key_value is not None):
        - Standard Flash Attention with KV cache.
@@ -2147,7 +2147,7 @@ def forward_hici_sft_inference(
             print("HiCI SFT Inference Mode (LongBench)")
             print("=" * 80)
             print(f"  group_size_ratio  : {group_size_ratio}")
-            print("  Prefill: HiCI hierarchical (higher_global + local_slots)")
+            print("  Prefill: HiCI hierarchical (global_context + local_slots)")
             print("  Decode:  standard attention + KV cache")
             print("=" * 80 + "\n", flush=True)
             _HICI_INFERENCE_PRINTED = True
@@ -2198,27 +2198,27 @@ def forward_hici_sft_inference(
         )
 
     # ========== Local Construction ==========
-    use_higher_global = True
-    use_local_slots = True
+    use_global_context = True
+    use_local_repr = True
 
     if hasattr(self, "local_constructor"):
         all_chunks = chunks.view(bsz * num_groups, group_size, hidden_size)
         mask_chunks = chunk_masks.view(bsz * num_groups, group_size)
-        all_local_mems = self.local_constructor(all_chunks, mask_chunks)
-        num_local_slots = all_local_mems.shape[1]
-        local_memories = all_local_mems.view(
+        all_local_repr = self.local_constructor(all_chunks, mask_chunks)
+        num_local_slots = all_local_repr.shape[1]
+        local_repr_stacked = all_local_repr.view(
             bsz, num_groups, num_local_slots, hidden_size
         )
     else:
         num_local_slots = 0
-        local_memories = None
+        local_repr_stacked = None
 
     # ========== Global Integration ==========
-    if hasattr(self, "global_integrator") and local_memories is not None:
-        higher_global = self.global_integrator(local_memories)
-        num_global_slots = higher_global.shape[1]
+    if hasattr(self, "global_integrator") and local_repr_stacked is not None:
+        global_context = self.global_integrator(local_repr_stacked)
+        num_global_slots = global_context.shape[1]
     else:
-        higher_global = None
+        global_context = None
         num_global_slots = 0
 
     # Q/K/V projections
@@ -2253,22 +2253,22 @@ def forward_hici_sft_inference(
     value_states = repeat_kv(value_states, self.num_key_value_groups)
 
     # Project memory slots to K/V
-    if higher_global is not None:
-        hg_k_cache = (
-            self.k_proj(higher_global)
+    if global_context is not None:
+        global_context_k_cache = (
+            self.k_proj(global_context)
             .view(bsz, num_global_slots, self.num_key_value_heads, self.head_dim)
             .transpose(1, 2)
         )
-        hg_v_cache = (
-            self.v_proj(higher_global)
+        global_context_v_cache = (
+            self.v_proj(global_context)
             .view(bsz, num_global_slots, self.num_key_value_heads, self.head_dim)
             .transpose(1, 2)
         )
-        hg_k = repeat_kv(hg_k_cache, self.num_key_value_groups)
-        hg_v = repeat_kv(hg_v_cache, self.num_key_value_groups)
+        global_context_k = repeat_kv(global_context_k_cache, self.num_key_value_groups)
+        global_context_v = repeat_kv(global_context_v_cache, self.num_key_value_groups)
     else:
-        hg_k = hg_v = None
-        hg_k_cache = hg_v_cache = None
+        global_context_k = global_context_v = None
+        global_context_k_cache = global_context_v_cache = None
 
     # Reshape into chunks
     q_chunks = query_states.view(
@@ -2281,11 +2281,11 @@ def forward_hici_sft_inference(
         bsz, self.num_heads, num_groups, group_size, self.head_dim
     )
 
-    # Project local slot memories to K/V
-    if local_memories is not None:
-        lm_flat = local_memories.view(bsz * num_groups, num_local_slots, hidden_size)
+    # Project local repr {Li} to K/V
+    if local_repr_stacked is not None:
+        local_mems_flat = local_repr_stacked.view(bsz * num_groups, num_local_slots, hidden_size)
         lm_k_cache = (
-            self.k_proj(lm_flat)
+            self.k_proj(local_mems_flat)
             .view(
                 bsz * num_groups,
                 num_local_slots,
@@ -2295,7 +2295,7 @@ def forward_hici_sft_inference(
             .transpose(1, 2)
         )
         lm_v_cache = (
-            self.v_proj(lm_flat)
+            self.v_proj(local_mems_flat)
             .view(
                 bsz * num_groups,
                 num_local_slots,
@@ -2327,16 +2327,16 @@ def forward_hici_sft_inference(
     # ========== Build KV cache ==========
     if use_cache:
         if INCLUDE_HICI_IN_KV_CACHE and (
-            hg_k_cache is not None or lm_k_cache is not None
+            global_context_k_cache is not None or lm_k_cache is not None
         ):
-            # KV cache = [higher_global, local_slots, tokens]
+            # KV cache = [global_context, local_slots, tokens]
             cache_components_k = []
             cache_components_v = []
             cache_prefix_len = 0
 
-            if hg_k_cache is not None:
-                cache_components_k.append(hg_k_cache)
-                cache_components_v.append(hg_v_cache)
+            if global_context_k_cache is not None:
+                cache_components_k.append(global_context_k_cache)
+                cache_components_v.append(global_context_v_cache)
                 cache_prefix_len += num_global_slots
             if lm_k_cache is not None:
                 cache_components_k.append(lm_k_cache)
@@ -2358,7 +2358,7 @@ def forward_hici_sft_inference(
                 if layer_idx == 0:
                     print(f"\n{'=' * 60}")
                     print(f"[HiCI Prefill] INCLUDE_HICI_IN_KV_CACHE=True")
-                    print(f"  higher_global slots : {num_global_slots}")
+                    print(f"  global_context slots : {num_global_slots}")
                     print(f"  local_constructor slots : {num_groups * num_local_slots}")
                     print(f"  prefix_len total    : {cache_prefix_len}")
                     print(f"  token_len           : {q_len}")
@@ -2380,7 +2380,7 @@ def forward_hici_sft_inference(
     else:
         past_key_value = None
 
-    # ========== Top-down Broadcast: build K/V = [higher_global, local_slots, chunk] ==========
+    # ========== Top-down Broadcast: build K/V = [global_context, local_slots, chunk] ==========
     prefix_len = num_global_slots + num_local_slots
     kv_len = prefix_len + group_size
 
@@ -2405,9 +2405,9 @@ def forward_hici_sft_inference(
         )
 
         offset = 0
-        if hg_k is not None:
-            all_k[:, :, :, offset : offset + num_global_slots, :] = hg_k.unsqueeze(2)
-            all_v[:, :, :, offset : offset + num_global_slots, :] = hg_v.unsqueeze(2)
+        if global_context_k is not None:
+            all_k[:, :, :, offset : offset + num_global_slots, :] = global_context_k.unsqueeze(2)
+            all_v[:, :, :, offset : offset + num_global_slots, :] = global_context_v.unsqueeze(2)
             offset += num_global_slots
         if lm_k is not None:
             all_k[:, :, :, offset : offset + num_local_slots, :] = lm_k.permute(
@@ -2566,13 +2566,12 @@ def register_hici_to_model(
     model,
     num_local_slots=8,
     global_slots=4,
-    num_heads=32,
+    num_heads=8,
     use_bottleneck=True,
-    bottleneck_dim=4096,
+    bottleneck_dim=512,
     use_local_constructor=True,
     use_global_integrator=True,
-    use_flash_plus=False,  # LocalConstructorFlashPlus requires pre-projected K/V; incompatible with forward_flashattn_hierarchical
-    use_local_constructor_flash: Optional[bool] = True,
+    use_local_constructor_flash: Optional[bool] = False,
     use_llama_init=False,  # warm-start Q/K/V projections from LLaMA pretrained weights
     use_shared_compressor=True,  # use GlobalIntegratorShared (–71% parameters vs. GlobalIntegrator)
     shared_compress_dim=128,  # intermediate dimension of the shared compressor
@@ -2624,14 +2623,14 @@ def register_hici_to_model(
             print("=" * 80)
             print("use_global_integrator=True requires use_local_constructor=True")
             print(
-                "Reason: HierarchicalAggregator needs local memories from LocalConstructor"
+                "Reason: GlobalIntegrator needs local memories from LocalConstructor"
             )
             print()
             print("Fix: Set use_local_constructor=True, or set use_global_integrator=False")
             print("=" * 80 + "\n")
         raise ValueError(
             "Invalid configuration: use_global_integrator=True requires use_local_constructor=True. "
-            "HierarchicalAggregator needs local memories from LocalConstructor to aggregate."
+            "GlobalIntegrator needs local memories from LocalConstructor to aggregate."
         )
 
     if rank == 0:
@@ -2680,16 +2679,7 @@ def register_hici_to_model(
 
         # Module 1: LocalConstructor
         if use_local_constructor:
-            if use_flash_plus:
-                # LocalConstructorFlashPlus: reuses host K/V projections (Q only)
-                # NOTE: incompatible with forward_flashattn_hierarchical (use_flash_plus=False)
-                attn.local_constructor = LocalConstructorFlashPlus(
-                    hidden_size=hidden_size,
-                    num_local_slots=num_local_slots,
-                    num_heads=num_heads,
-                    init_from_embeddings=embed_weight,
-                ).to(model_dtype)
-            elif use_local_constructor_flash:
+            if use_local_constructor_flash:
                 # LocalConstructorFlash: independent Q/K/V projections, Flash Attention
                 attn.local_constructor = LocalConstructorFlash(
                     hidden_size=hidden_size,
@@ -2705,7 +2695,7 @@ def register_hici_to_model(
                     num_local_slots=num_local_slots,
                     num_heads=num_heads,
                     init_from_embeddings=embed_weight,
-                    init_from_llama_attn=attn if use_llama_init else None,
+                    init_from_attn=attn if use_llama_init else None,
                     use_bottleneck=use_bottleneck,
                     bottleneck_dim=bottleneck_dim,
                 ).to(model_dtype)

@@ -26,7 +26,7 @@ CONFIGS = {
         "lora_files": [
             "adapter_model.safetensors",  # LoRA weights (safetensors format)
             "adapter_config.json",        # LoRA config (includes base_model path)
-            "trainable_params.bin",       # embed + norm + global_memory + hierarchical_aggregator
+            "trainable_params.bin",       # embed + norm + local_constructor + global_integrator
         ],
         "tokenizer_files": [              # BPE tokenizer, no tokenizer.model
             "tokenizer.json",
@@ -44,7 +44,7 @@ CONFIGS = {
         "lora_files": [
             "adapter_model.bin",    # LoRA weights (.bin format for Llama-2)
             "adapter_config.json",  # LoRA config (includes base_model path)
-            "trainable_params.bin", # embed + norm + global_memory + hierarchical_aggregator
+            "trainable_params.bin", # embed + norm + local_constructor + global_integrator
         ],
         "tokenizer_files": [        # SentencePiece tokenizer
             "tokenizer.model",
@@ -61,7 +61,7 @@ CONFIGS = {
         "lora_files": [
             "adapter_model.bin",    # LoRA weights (.bin format)
             "adapter_config.json",  # LoRA config (includes base_model path)
-            "trainable_params.bin", # embed + norm + global_memory + hierarchical_aggregator
+            "trainable_params.bin", # embed + norm + local_constructor + global_integrator
         ],
         "tokenizer_files": [        # tiktoken tokenizer (no tokenizer.model for Llama-3)
             "tokenizer.json",
@@ -100,10 +100,10 @@ language:
 - zh
 license: apache-2.0
 tags:
-- long-context
-- context-extension
+- long-context modeling
 - hierarchical-attention
 - segmented-attention
+- transformers
 - qwen3
 - peft
 - lora
@@ -139,8 +139,8 @@ adapter_model.safetensors  (27 MB)
 └── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
 
 trainable_params.bin  (~4 GB)
-├── global_memory.*            — Local Construction modules (36 layers)
-├── hierarchical_aggregator.*  — Global Integration modules (36 layers)
+├── local_constructor.*            — Local Construction modules (36 layers)
+├── global_integrator.*  — Global Integration modules (36 layers)
 ├── self_attn.q_norm / k_norm  — QK-Norm weights (Qwen3-specific, 36 layers)
 ├── input_layernorm / post_attention_layernorm — LayerNorm weights (36 layers)
 ├── model.embed_tokens.weight  — Token embeddings
@@ -247,8 +247,8 @@ adapter_model.bin  (27 MB)
 └── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
 
 trainable_params.bin  (~2 GB)
-├── global_memory.*            — Local Construction modules (32 layers)
-├── hierarchical_aggregator.*  — Global Integration modules (32 layers)
+├── local_constructor.*            — Local Construction modules (32 layers)
+├── global_integrator.*  — Global Integration modules (32 layers)
 ├── input_layernorm / post_attention_layernorm — LayerNorm weights (32 layers)
 ├── model.embed_tokens.weight  — Token embeddings
 └── model.norm.weight          — Final LayerNorm
@@ -353,8 +353,8 @@ adapter_model.bin  (25 MB)
 └── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
 
 trainable_params.bin  (~3.5 GB)
-├── global_memory.*            — Local Construction modules (32 layers)
-├── hierarchical_aggregator.*  — Global Integration modules (32 layers)
+├── local_constructor.*            — Local Construction modules (32 layers)
+├── global_integrator.*  — Global Integration modules (32 layers)
 ├── input_layernorm / post_attention_layernorm — LayerNorm weights (32 layers)
 ├── model.embed_tokens.weight  — Token embeddings (vocab=128,258)
 └── model.norm.weight          — Final LayerNorm
