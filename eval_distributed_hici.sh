@@ -1,23 +1,12 @@
-conda activate hici
-cd /scratch/sx11/sx0401/workspace/xiangyu/llm-memory
-# eval_llama2-7b-8k_basline visual_7b
 # bash eval_distributed_hici.sh 2>&1 | tee eval_llama2-7b-8k_Re/PG19_TEST_EVAL_Llama-2-7b-8k-hici-causal_shift_g-G8_2000_2k_ori.txt
-# PG19_EVAL_Llama-2-7b-8k-FTM-NEW-8-only1localsummary_noR_4e_2000_astrain.txt
-GRAB_SCRIPT="$(cd "$(dirname "$0")" && pwd)/grab_gpu.sh"
-trap 'echo ""; echo "🎯 脚本退出，开始在 tmux 中抢占GPU..."; tmux new-session -d -s gpu_grab "bash $GRAB_SCRIPT" 2>/dev/null || tmux send-keys -t gpu_grab "bash $GRAB_SCRIPT" C-m; echo "✅ 抢占脚本已在 tmux session \"gpu_grab\" 中启动"; echo "💡 查看抢占状态: tmux attach -t gpu_grab"' EXIT
-# 清理端口
+
+# Free port
 fuser -k 38493/tcp 2>/dev/null || echo "Port 38493 not in use"
 sleep 2
 pkill -9 -f "eval_distributed_hici.py"
+
 # ./data/pg19/validation.bin   ./data/pg19/test.bin
 # ./data/proof-pile/test_sampled_data.bin
-# Llama-2-7b-8k-memory-inject-cache  Llama-2-7b-8k-memory-inject
-# Llama-2-7b-8k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share
-# Llama-2-7b-16k-FTM-NEW-75-bothhigher_multi_clip_2e_clean_share_woO
-# Llama-2-7b-8k-longlora-ori
-# Llama-2-13b-32k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share
-# Llama-2-7b-100k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_G10
-# BASE_MODEL="./models/merged_models/Llama-2-13b-64k-FTM-NEW-75-merged-1000-hici-S2048"
 BASE_MODEL="./models/Llama-2-7b-hf"
 # BASE_MODEL="./models/Llama-2-13b-hf"
 # BASE_MODEL="./models/Meta-Llama-3-8B"
@@ -26,41 +15,51 @@ nproc_per_node=4
 DATA_PATH="./data/pg19/test.bin"
 SEQ_LEN=2048  # 2048 4096 8192 16384 32768 65536 100000
 CONTEXT_SIZE=8192
+
+# HiCI configuration (must match training!)
 use_local_constructor=True
 use_global_integrator=True
 NUM_LOCAL_SLOTS=8
 global_slots=4  # Global Representation Slots
-num_heads=8  # number of attention heads
+num_heads=8     # number of attention heads
 use_bottleneck=True
 bottleneck_dim=512
 shared_compress_dim=128
-eval_mode=None   # None (chunked, same as training) or "full" (full attention, no HiCI)
 
-# LocalConstructor 类型选择
+# Eval mode: None (chunked, same as training) or "full" (full attention, no HiCI)
+eval_mode=None
+
+# LocalConstructor type
 use_local_constructor_flash=False
 
-# 前馈函数
+# Forward function
 use_hierarchical_forward=True
 
-echo "================================"
-echo "📦 基础模型: $BASE_MODEL"
-echo "📁 评估模型的目录: $CHECKPOINT_PATH"
-echo "🤖 GPU数目: $nproc_per_node"
-echo "🗃️ 评估数据集: $DATA_PATH"
-echo "📊 最大长度: $CONTEXT_SIZE"
-echo "🔢 评估的序列长度: $SEQ_LEN"
-echo "🎯 评估方式: $eval_mode"
-echo "--------------HiCI configuration-----------------"
+echo "========================================"
+echo "🔍 LLaMA-2/3 HiCI Evaluation (PG-19)"
+echo "========================================"
+echo "📦 Base model:       $BASE_MODEL"
+echo "📁 Checkpoint:       $CHECKPOINT_PATH"
+echo "🤖 GPUs:             $nproc_per_node"
+echo "🗃️  Dataset:          $DATA_PATH"
+echo "📊 Context size:     $CONTEXT_SIZE"
+echo "🔢 Eval seq len:     $SEQ_LEN"
+echo "🎯 Eval mode:        $eval_mode"
+echo ""
+echo "── HiCI Configuration ───────────────────"
 echo "📝 LocalConstructor: $use_local_constructor"
 echo "🔁 GlobalIntegrator: $use_global_integrator"
-echo "🌐 Global Representation Slots: $global_slots"
-echo "🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-echo "🎯 使用 Bottleneck: $use_bottleneck"
-echo "🔢 HiCI Attention Heads: $num_heads"
-echo "🧩 Bottleneck Dimension: $bottleneck_dim"
-echo "--------------前馈函数设置-----------------"
-echo "🧠 LocalConstructorFlash (use_local_constructor_flash): $use_local_constructor_flash"
-echo "📝 forward_flashattn_hierarchical (use_hierarchical_forward): $use_hierarchical_forward"
+echo "🌐 Global slots:     $global_slots"
+echo "🧠 Local slots:      $NUM_LOCAL_SLOTS"
+echo "🎯 Bottleneck:       $use_bottleneck"
+echo "🔢 Attention heads:  $num_heads"
+echo "🧩 Bottleneck dim:   $bottleneck_dim"
+echo ""
+echo "── Forward Function ─────────────────────"
+echo "🧠 LocalConstructorFlash: $use_local_constructor_flash"
+echo "📝 Hierarchical fwd: $use_hierarchical_forward"
+echo "========================================"
+
 # --peft_model $CHECKPOINT_PATH \
 torchrun --nproc_per_node=$nproc_per_node \
     --master_port=38493 \
@@ -83,7 +82,3 @@ torchrun --nproc_per_node=$nproc_per_node \
     --use_local_constructor_flash $use_local_constructor_flash \
     --use_hierarchical_forward $use_hierarchical_forward \
     --shared_compress_dim $shared_compress_dim \
-
-
-
-    

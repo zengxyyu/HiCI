@@ -49,7 +49,7 @@ CONTEXT_SIZE=40960
 # ============================================================
 # Evaluation mode
 # ============================================================
-# 评估方式: None (chunked, same as training) or "full" (full attention, no HiCI)
+# Eval mode: None (chunked, same as training) or "full" (full attention, no HiCI)
 eval_mode=full
 
 # ============================================================
@@ -63,36 +63,40 @@ num_heads=8
 use_bottleneck=True
 bottleneck_dim=512
 
-# LocalConstructor 类型选择
+# LocalConstructor type
 use_local_constructor_flash=False
 
-# 前馈函数
+# Forward function
 use_hierarchical_forward=True
 
 # ============================================================
 # Logging
 # ============================================================
-echo "================================"
-echo "📦 基础模型: $BASE_MODEL"
-echo "📁 评估模型的目录: $CHECKPOINT_PATH"
-echo "🤖 GPU数目: $((NNODES * NPROC_PER_NODE)) (${NNODES}节点 x ${NPROC_PER_NODE}卡)"
-echo "🖥️ 当前节点: $NODE_RANK / $((NNODES-1))  Master: $MASTER_ADDR:$MASTER_PORT"
-echo "🗃️ 评估数据集: $DATA_PATH"
-echo "📊 最大长度: $CONTEXT_SIZE"
-echo "🔢 评估的序列长度: $SEQ_LEN"
-echo "🎯 评估方式: $eval_mode"
-echo "--------------记忆属性设置-----------------"
-echo "📝 使用局部摘要记忆机制: $use_local_constructor"
-echo "🔁 使用高层全局记忆机制: $use_global_integrator"
-echo "🌐 Global Representation Slots: $global_slots"
-echo "🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-echo "🎯 使用 Bottleneck: $use_bottleneck"
-echo "🔢 HiCI Attention Heads: $num_heads"
-echo "🧩 Bottleneck Dimension: $bottleneck_dim"
-echo "--------------前馈函数设置-----------------"
-echo "🧠 LocalConstructorFlash (use_local_constructor_flash): $use_local_constructor_flash"
-echo "📝 forward_flashattn_hierarchical (use_hierarchical_forward): $use_hierarchical_forward"
-echo "================================"
+echo "========================================"
+echo "🔍 Qwen3-8B HiCI Multi-Node Evaluation"
+echo "========================================"
+echo "📦 Base model:       $BASE_MODEL"
+echo "📁 Checkpoint:       $CHECKPOINT_PATH"
+echo "🤖 GPUs:             $((NNODES * NPROC_PER_NODE)) (${NNODES} nodes x ${NPROC_PER_NODE})"
+echo "🖥️  Current node:     $NODE_RANK / $((NNODES-1))  Master: $MASTER_ADDR:$MASTER_PORT"
+echo "🗃️  Dataset:          $DATA_PATH"
+echo "📊 Context size:     $CONTEXT_SIZE"
+echo "🔢 Eval seq len:     $SEQ_LEN"
+echo "🎯 Eval mode:        $eval_mode"
+echo ""
+echo "── HiCI Configuration ───────────────────"
+echo "📝 LocalConstructor: $use_local_constructor"
+echo "🔁 GlobalIntegrator: $use_global_integrator"
+echo "🌐 Global slots:     $global_slots"
+echo "🧠 Local slots:      $NUM_LOCAL_SLOTS"
+echo "🎯 Bottleneck:       $use_bottleneck"
+echo "🔢 Attention heads:  $num_heads"
+echo "🧩 Bottleneck dim:   $bottleneck_dim"
+echo ""
+echo "── Forward Function ─────────────────────"
+echo "🧠 LocalConstructorFlash: $use_local_constructor_flash"
+echo "📝 Hierarchical fwd: $use_hierarchical_forward"
+echo "========================================"
 
 # Clean up stale processes
 pkill -9 -f "eval_distributed_hici_qwen3.py" 2>/dev/null
@@ -125,6 +129,6 @@ torchrun \
     --use_hierarchical_forward $use_hierarchical_forward
 
 echo ""
-echo "============================================"
-echo "Evaluation completed! (Node $NODE_RANK)"
-echo "============================================"
+echo "========================================"
+echo "✅ Evaluation completed! (Node $NODE_RANK)"
+echo "========================================"

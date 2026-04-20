@@ -605,7 +605,7 @@ bash eval_chunkdca_pg19.sh qwen3  baseline
 ### Passkey Retrieval
 
 ```bash
-python passkey_retrivial.py \
+python passkey_retrieval.py \
     --base_model ./models/merged/Llama-2-7b-HiCI-32k \
     --context_size 32768 \
     --max_tokens 57344 \

@@ -23,5 +23,9 @@ torchmetrics>=1.2.0
 bitsandbytes>=0.43.0
 deepspeed>=0.14.0
 
+# Topic retrieval evaluation (LongChat) and GPT auto-scoring
+fschat==0.2.36
+openai==2.32.0
+
 # Flash Attention is compiled from source; install separately:
 #   pip install flash-attn==2.5.8 --no-build-isolation

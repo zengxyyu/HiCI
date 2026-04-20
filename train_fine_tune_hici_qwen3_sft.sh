@@ -59,7 +59,7 @@ LEARNING_RATE=2e-5
 MAX_STEPS=1000
 WARMUP_STEPS=50
 BATCH_SIZE=1
-GRAD_ACCUM=8
+gradient_accumulation_steps=8
 
 # LoRA
 LOW_RANK_TRAINING=True
@@ -102,7 +102,7 @@ echo "Output:        $OUTPUT_DIR"
 echo "Dataset:       $DATASET_NAME ($DATASET_SPLIT)"
 echo "Max seq len:   $MAX_SEQ_LENGTH"
 echo "Steps:         $MAX_STEPS"
-echo "Batch size:    $BATCH_SIZE x $GRAD_ACCUM (effective: $((BATCH_SIZE * GRAD_ACCUM * NPROC_PER_NODE * NNODES)))"
+echo "Batch size:    $BATCH_SIZE x $gradient_accumulation_steps (effective: $((BATCH_SIZE * GRAD_ACCUM * NPROC_PER_NODE * NNODES)))"
 echo "HiCI config: slots=$NUM_LOCAL_SLOTS, global=$GLOBAL_SLOTS, heads=$NUM_HEADS"
 echo "DeepSpeed:     $DEEPSPEED_CONFIG"
 if [ -n "$PRETRAINED_HICI_PATH" ]; then
@@ -134,7 +134,7 @@ CMD="torchrun \
     --max_seq_length $MAX_SEQ_LENGTH \
     --bf16 True \
     --per_device_train_batch_size $BATCH_SIZE \
-    --gradient_accumulation_steps $GRAD_ACCUM \
+    --gradient_accumulation_steps $gradient_accumulation_steps \
     --learning_rate $LEARNING_RATE \
     --max_steps $MAX_STEPS \
     --warmup_steps $WARMUP_STEPS \

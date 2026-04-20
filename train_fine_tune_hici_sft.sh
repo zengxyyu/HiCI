@@ -1,86 +1,90 @@
 #!/bin/bash
-# bash train_fine_tune_hici_sft.sh 2>&1 | tee Train_out_sft/Llama-2-7b-16k-SFT-clean-share-hici-16.txt
+# bash train_fine_tune_hici_sft.sh 2>&1 | tee Train_out_sft/Llama-2-7b-16k-SFT-hici-16.txt
 pkill -9 -f "fine-tune_hici_sft.py"
 fuser -k 38493/tcp 2>/dev/null || echo "✅ Port 38493 not in use"
 sleep 2
 
-# 基础配置
-MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Llama-2-7b-hf"
+# Base configuration
+# MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Llama-2-7b-hf"
+MODEL_PATH="./models/Llama-2-7b-hf"
 # MODEL_PATH="./models/Llama-2-7b-chat-hf"
-RESUME_CHECKPOINT="/scratch/sh89/xz2053/projects/llm-memory/checkpoints/Llama-2-7b-8k-hici-causal_gi-G4/checkpoint-1000"
-# RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-16k-FTM-NEW-75-bothhigher_multi_clip_2e_clean_share_woO/checkpoint-1000"
+# RESUME_CHECKPOINT="/scratch/sh89/xz2053/projects/llm-memory/checkpoints/Llama-2-7b-8k-hici-causal_gi-G4/checkpoint-1000"
+RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-hici-16k-none/checkpoint-1000"
 OUTPUT_DIR="./checkpoints/Llama-2-7b-16k-SFT-hici-16"
-MAX_LENGTH=16384  # SFT通常使用 8192 或 16384 不需要 32768
-DATA_PATH="/scratch/sh89/xz2053/projects/llm-memory/data/sft/LongAlpaca-12k.json"
+MAX_LENGTH=16384  # SFT typically uses 8192 or 16384; 32768 not needed
+# DATA_PATH="/scratch/sh89/xz2053/projects/llm-memory/data/sft/LongAlpaca-12k.json"
+DATA_PATH="./data/sft/LongAlpaca-12k.json"
 # DATA_PATH="./data/sft/LongAlpaca-16k-length/LongAlpaca-16k-length.json"
 
-# 训练超参数
+# Training hyperparameters
 nproc_per_node=4
+gradient_accumulation_steps=16
 WARMUP_STEPS=20
-NUM_EPOCHS=15 
-MAX_STEPS=3000  # -1 表示根据 epochs 自动计算；也可设置固定值如 1000
-low_rank_training=True  # 是否使用低秩训练 LongLoRA
+NUM_EPOCHS=15
+MAX_STEPS=3000  # -1 = auto-computed from epochs; or set a fixed value
+low_rank_training=True  # whether to use low-rank training (LongLoRA)
 
 # HiCI module configuration
 use_local_constructor=True
 use_global_integrator=True
 NUM_LOCAL_SLOTS=8  # Local Representation Slots
-global_slots=4  # Global Representation Slots
-num_heads=8  # number of attention heads
+global_slots=4     # Global Representation Slots
+num_heads=8        # number of attention heads
 use_bottleneck=True
-bottleneck_dim=512  # bottleneck dimension
-shared_compress_dim=128  # 共享压缩层维度（7B用128, 13B用160）
+bottleneck_dim=512        # bottleneck dimension
+shared_compress_dim=128   # shared compress dim (128 for 7B, 160 for 13B)
 
 # HiCI learning rate and gradient clipping
 hici_lr=2e-4
 hici_grad_clip=0.3
 
-# 可训练参数
+# Trainable parameters
 # TRAINABLE_PARAMS="embed,norm"
 TRAINABLE_PARAMS="embed,norm,local_constructor,global_integrator"
 
-# LocalConstructor 类型选择
-use_llama_init=False  # qkv的参数是否从llama初始化
+# LocalConstructor type
+use_llama_init=False  # whether to init Q/K/V from LLaMA weights
 use_local_constructor_flash=False
 use_hierarchical_forward=True
 
 deepspeed_config="ds_configs/stage2.json"  # Stage 2: 24GB VRAM; Stage 3: 16GB VRAM
 
-echo "========================================================================"
+echo "========================================"
 echo "🔥 Supervised Fine-Tuning (SFT) with HiCI"
-echo "========================================================================"
+echo "========================================"
 echo ""
-echo "📦 基础配置:"
-echo "  - 基础模型: $MODEL_PATH"
-echo "  - 恢复检查点: $RESUME_CHECKPOINT"
-echo "  - 输出目录: $OUTPUT_DIR"
-echo "  - 📊 数据集: $DATA_PATH"
-echo "  - 🤖 GPU数目: $nproc_per_node"
-echo "  - 📏 最大长度: $MAX_LENGTH"
-echo "  - 🔄 训练轮数: $NUM_EPOCHS"
-echo "  - 📈 最大步数: $MAX_STEPS (如为-1则根据epochs自动计算)"
-echo "  - 🔥 预热步数: $WARMUP_STEPS"
-echo "  - ⚙️ 可训练参数: $TRAINABLE_PARAMS"
-echo "  - 💾 DeepSpeed配置: $deepspeed_config"
-echo "  - 🎯 使用低秩训练 LongLoRA: $low_rank_training"
+echo "📦 Base configuration:"
+echo "  - 📦 Base model:         $MODEL_PATH"
+echo "  - 🔄 Resume checkpoint:  $RESUME_CHECKPOINT"
+echo "  - 📁 Output dir:         $OUTPUT_DIR"
+echo "  - 📊 Dataset:            $DATA_PATH"
+echo "  - 🤖 GPUs:               $nproc_per_node"
+echo "  - 📈 Grad accumulation:  $gradient_accumulation_steps"
+echo "  - 📏 Max length:         $MAX_LENGTH"
+echo "  - 🔄 Epochs:             $NUM_EPOCHS"
+echo "  - 📈 Max steps:          $MAX_STEPS  (-1 = auto from epochs)"
+echo "  - 🔥 Warmup steps:       $WARMUP_STEPS"
+echo "  - ⚙️  Trainable params:   $TRAINABLE_PARAMS"
+echo "  - 💾 DeepSpeed:          $deepspeed_config"
+echo "  - 🎯 LoRA training:      $low_rank_training"
 echo ""
-echo "🧠 HiCI module configuration:"
-echo "  - 📝 LocalConstructor: $use_local_constructor"
-echo "  - 🔁 GlobalIntegrator: $use_global_integrator"
-echo "  - 🌐 Global Representation Slots: $global_slots"
-echo "  - 🧠 Local Representation Slots: $NUM_LOCAL_SLOTS"
-echo "  - 💡 HiCI learning rate: $hici_lr"
-echo "  - 🤖 HiCI gradient clip: $hici_grad_clip"
-echo "  - 🎯 使用 Bottleneck: $use_bottleneck"
-echo "  - 📊 Bottleneck Dimension: $bottleneck_dim"
-echo "  - 🧩 Shared Compress Dim: $shared_compress_dim"
-echo "  - 🧠 Init from LLaMA weights: $use_llama_init"
+echo "🧠 HiCI Configuration:"
+echo "  - 📝 LocalConstructor:   $use_local_constructor"
+echo "  - 🔁 GlobalIntegrator:   $use_global_integrator"
+echo "  - 🌐 Global slots:       $global_slots"
+echo "  - 🧠 Local slots:        $NUM_LOCAL_SLOTS"
+echo "  - 💡 HiCI LR:            $hici_lr"
+echo "  - 🤖 HiCI grad clip:     $hici_grad_clip"
+echo "  - 🎯 Bottleneck:         $use_bottleneck"
+echo "  - 📊 Bottleneck dim:     $bottleneck_dim"
+echo "  - 🧩 Shared compress:    $shared_compress_dim"
+echo "  - 🧠 Init from LLaMA:    $use_llama_init"
 echo ""
-echo "⚙️ 前馈函数配置:"
-echo "  - 🧠 LocalConstructorFlash (use_local_constructor_flash): $use_local_constructor_flash"
-echo "  - 📝 forward_flashattn_hierarchical (use_hierarchical_forward): $use_hierarchical_forward"
+echo "⚙️  Forward Function:"
+echo "  - 🧠 LocalConstructorFlash: $use_local_constructor_flash"
+echo "  - 📝 Hierarchical fwd:   $use_hierarchical_forward"
 echo ""
-echo "========================================================================"
+echo "========================================"
 
 # --resume_from_checkpoint $RESUME_CHECKPOINT \
 torchrun --nproc_per_node $nproc_per_node \
@@ -98,7 +102,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_train_epochs $NUM_EPOCHS \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 16 \
+      --gradient_accumulation_steps $gradient_accumulation_steps \
       --evaluation_strategy "no" \
       --save_strategy "steps" \
       --save_steps 500 \
@@ -127,7 +131,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --use_hierarchical_forward $use_hierarchical_forward \
 
 echo ""
-echo "========================================================================"
+echo "========================================"
 echo "✅ SFT Training Completed!"
-echo "========================================================================"
+echo "========================================"
 echo "📁 Checkpoints saved to: $OUTPUT_DIR"

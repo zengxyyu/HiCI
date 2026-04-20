@@ -1,10 +1,9 @@
 """
-修复版Flash Attention Monkey Patch
-兼容Transformers 4.34.0
+Fixed Flash Attention Monkey Patch for Transformers 4.34.0
 
-修复内容:
-1. 添加 padding_mask 参数支持
-2. 兼容新版transformers的参数签名
+Fixes:
+1. Add padding_mask parameter support
+2. Compatible with newer transformers argument signatures
 """
 from typing import Optional, Tuple
 import warnings
@@ -26,11 +25,9 @@ def forward(
     past_key_value: Optional[Tuple[torch.Tensor]] = None,
     output_attentions: bool = False,
     use_cache: bool = False,
-    padding_mask: Optional[torch.Tensor] = None,  # 🔥 添加这个参数！
+    padding_mask: Optional[torch.Tensor] = None,  # compatibility parameter
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-    """
-    修复版forward函数，支持padding_mask参数
-    """
+    """Forward with padding_mask support for Transformers 4.34.0 compatibility."""
     if output_attentions:
         warnings.warn(
             "Output attentions is not supported for patched `LlamaAttention`, returning `None` instead."
@@ -73,9 +70,8 @@ def forward(
     qkv = torch.stack([query_states, key_states, value_states], dim=2)
     qkv = qkv.transpose(1, 3)  # shape: [b, s, 3, num_heads, head_dim]
 
-    # 🔥 padding_mask在标准LlamaAttention中未使用，只是兼容性参数
-    # Flash attention实际需要的是attention_mask
-    # 注意：我们忽略padding_mask，只使用attention_mask
+    # padding_mask is unused in standard LlamaAttention; ignored here for API compatibility.
+    # Flash attention uses attention_mask as the key padding mask.
     key_padding_mask = attention_mask
 
     if key_padding_mask is None:
@@ -111,10 +107,7 @@ def _prepare_decoder_attention_mask(
 
 
 def replace_llama_attn_with_flash_attn():
-    """
-    替换LlamaAttention的forward函数为flash attention实现
-    兼容Transformers 4.34.0
-    """
+    """Replace LlamaAttention.forward with a flash attention implementation compatible with Transformers 4.34.0."""
     cuda_major, cuda_minor = torch.cuda.get_device_capability()
     if cuda_major < 8:
         warnings.warn(
@@ -122,11 +115,11 @@ def replace_llama_attn_with_flash_attn():
             "ref: https://github.com/HazyResearch/flash-attention/issues/190#issuecomment-1523359593"
         )
 
-    print("🔥 应用修复版Flash Attention Monkey Patch (支持padding_mask)")
+    print("🔥 Applying fixed Flash Attention monkey patch (padding_mask support)")
 
     transformers.models.llama.modeling_llama.LlamaModel._prepare_decoder_attention_mask = (
         _prepare_decoder_attention_mask
     )
     transformers.models.llama.modeling_llama.LlamaAttention.forward = forward
 
-    print("✅ Flash Attention Monkey Patch应用成功")
+    print("✅ Flash Attention monkey patch applied successfully")

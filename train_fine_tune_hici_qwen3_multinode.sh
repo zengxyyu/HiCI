@@ -9,20 +9,11 @@
 
 NODE_RANK=${1:?'Usage: bash train_fine_tune_hici_qwen3_multinode.sh <node_rank> (0=master, 1=worker)'}
 
-# Environment - 自动识别账号
+# Environment - auto-detect account
 # SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # cd "$SCRIPT_DIR"
 export DS_SKIP_CUDA_CHECK=1
 # export CUDA_HOME=/apps/cuda/12.5.1
-
-# 激活环境：优先用 PBS_JOBFS 解压的环境，否则用 conda
-# if [ -d "${PBS_JOBFS}/hici-qwen3/bin" ]; then
-#     export PATH="${PBS_JOBFS}/hici-qwen3/bin:$PATH"
-#     export CONDA_PREFIX="${PBS_JOBFS}/hici-qwen3"
-# else
-#     eval "$(~/miniforge3/bin/conda shell.bash hook)"
-#     conda activate hici-qwen3
-# fi
 
 
 # Multi-node config
@@ -42,6 +33,7 @@ MAX_LENGTH=49152  # 8192 32768 49152 65536
 WARMUP_STEPS=20
 hici_lr=2e-4
 hici_grad_clip=0.3
+gradient_accumulation_steps=8
 low_rank_training=True
 
 # HiCI configuration
@@ -61,18 +53,19 @@ use_attn_init=False
 
 deepspeed_config="ds_configs/stage2.json"
 
-echo "================================"
-echo "Qwen3-8B HiCI Multi-Node Training"
-echo "================================"
-echo "Node rank: $NODE_RANK / $((NNODES-1))"
-echo "Master: $MASTER_ADDR:$MASTER_PORT"
-echo "GPUs per node: $NPROC_PER_NODE"
-echo "Total GPUs: $((NNODES * NPROC_PER_NODE))"
-echo "Model: $MODEL_PATH"
-echo "Output: $OUTPUT_DIR"
-echo "Max length: $MAX_LENGTH"
-echo "DeepSpeed: $deepspeed_config"
-echo "================================"
+echo "========================================"
+echo "🚀 Qwen3-8B HiCI Multi-Node Training"
+echo "========================================"
+echo "🖥️  Node:             $NODE_RANK / $((NNODES-1))"
+echo "🌐 Master:           $MASTER_ADDR:$MASTER_PORT"
+echo "🤖 GPUs per node:    $NPROC_PER_NODE"
+echo "🤖 Total GPUs:       $((NNODES * NPROC_PER_NODE))"
+echo "📈 Grad accumulation: $gradient_accumulation_steps"
+echo "📦 Base model:       $MODEL_PATH"
+echo "📁 Output dir:       $OUTPUT_DIR"
+echo "📊 Max length:       $MAX_LENGTH"
+echo "💡 DeepSpeed:        $deepspeed_config"
+echo "========================================"
 echo ""
 
 # Clean up
@@ -97,7 +90,7 @@ torchrun \
       --num_train_epochs 1  \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 8 \
+      --gradient_accumulation_steps $gradient_accumulation_steps \
       --eval_strategy "no" \
       --save_strategy "steps" \
       --save_steps 250 \
@@ -125,7 +118,8 @@ torchrun \
       --hici_grad_clip $hici_grad_clip
 
 echo ""
-echo "================================"
-echo "Training completed! (Node $NODE_RANK)"
-echo "Checkpoints saved to: $OUTPUT_DIR"
+echo "========================================"
+echo "✅ Training completed! (Node $NODE_RANK)"
+echo "📁 Checkpoints saved to: $OUTPUT_DIR"
+echo "========================================"
 echo ""

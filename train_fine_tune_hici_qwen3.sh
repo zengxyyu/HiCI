@@ -10,6 +10,7 @@ MAX_LENGTH=49152  # 8192 32768 49152 51200 65536 131072
 WARMUP_STEPS=20
 hici_lr=2e-4
 nproc_per_node=4
+gradient_accumulation_steps=16
 hici_grad_clip=0.3
 low_rank_training=True
 
@@ -37,7 +38,8 @@ echo "Qwen3-8B HiCI Training"
 echo "================================"
 echo "Model: $MODEL_PATH"
 echo "Output: $OUTPUT_DIR"
-echo "GPUs: $nproc_per_node"
+echo "GPUs:              $nproc_per_node"
+echo "📈 Grad accumulation: $gradient_accumulation_steps"
 echo "Max length: $MAX_LENGTH"
 echo "Trainable params: $TRAINABLE_PARAMS"
 echo "HiCI LR: $hici_lr"
@@ -75,7 +77,7 @@ torchrun --nproc_per_node $nproc_per_node \
       --num_train_epochs 1  \
       --per_device_train_batch_size 1 \
       --per_device_eval_batch_size 2 \
-      --gradient_accumulation_steps 16 \
+      --gradient_accumulation_steps $gradient_accumulation_steps \
       --eval_strategy "no" \
       --save_strategy "steps" \
       --save_steps 100 \
