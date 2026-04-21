@@ -1,5 +1,5 @@
 #!/bin/bash
-# bash train_fine_tune_hici_sft.sh 2>&1 | tee Train_out_sft/Llama-2-7b-16k-SFT-hici-16.txt
+# bash train_fine_tune_hici_sft.sh 2>&1 | tee Train_out_sft/Llama-2-7b-hici-16k-none-try-sft.txt
 pkill -9 -f "fine-tune_hici_sft.py"
 fuser -k 38493/tcp 2>/dev/null || echo "✅ Port 38493 not in use"
 sleep 2
@@ -9,8 +9,8 @@ sleep 2
 MODEL_PATH="./models/Llama-2-7b-hf"
 # MODEL_PATH="./models/Llama-2-7b-chat-hf"
 # RESUME_CHECKPOINT="/scratch/sh89/xz2053/projects/llm-memory/checkpoints/Llama-2-7b-8k-hici-causal_gi-G4/checkpoint-1000"
-RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-hici-16k-none/checkpoint-1000"
-OUTPUT_DIR="./checkpoints/Llama-2-7b-16k-SFT-hici-16"
+RESUME_CHECKPOINT="./checkpoints/Llama-2-7b-hici-16k-none-try/checkpoint-500"
+OUTPUT_DIR="./checkpoints/Llama-2-7b-hici-16k-none-try-sft-500"
 MAX_LENGTH=16384  # SFT typically uses 8192 or 16384; 32768 not needed
 # DATA_PATH="/scratch/sh89/xz2053/projects/llm-memory/data/sft/LongAlpaca-12k.json"
 DATA_PATH="./data/sft/LongAlpaca-12k.json"
@@ -35,7 +35,7 @@ bottleneck_dim=512        # bottleneck dimension
 shared_compress_dim=128   # shared compress dim (128 for 7B, 160 for 13B)
 
 # HiCI learning rate and gradient clipping
-hici_lr=2e-4
+hici_lr=1e-4
 hici_grad_clip=0.3
 
 # Trainable parameters

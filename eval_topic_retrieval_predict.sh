@@ -29,7 +29,7 @@ MODEL_BASE_DIR="./models"
 # MODEL_NAME="merged_models/Llama-2-13b-HiCI-16k"
 # MODEL_NAME="merged_models/Llama-2-13b-HiCI-16k-S2048"
 # MODEL_NAME="merged_models/Llama-2-7b-HiCI-32k"
-MODEL_NAME="merged/Llama-2-13b-HiCI-16k-wO-merged"
+MODEL_NAME="merged/Llama-2-13b-hici-16k-none-1000steps-merged"
 
 # Resolve to absolute path so it stays valid after cd
 MODEL_PATH="$(realpath ${MODEL_BASE_DIR}/${MODEL_NAME})"

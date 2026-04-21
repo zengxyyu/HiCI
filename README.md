@@ -112,28 +112,25 @@ mkdir -p data/sft
 wget -P data/sft https://huggingface.co/datasets/Yukang/LongAlpaca-12k/resolve/main/LongAlpaca-12k.json
 ```
 
-### Evaluation data (PG-19)
+### Evaluation data (PG-19 and Proof-pile)
 
-**Option 1 — Download pre-tokenized files (recommended):**
-
-One-liner to download all files at once:
+**Option 1 — Download all pre-tokenized files at once (recommended):**
 
 ```bash
-mkdir -p data/pg19_llama2 data/pg19_llama3 data/pg19_qwen3 && \
-BASE="https://huggingface.co/datasets/ZengXiangyu/pg19/resolve/main" && \
-wget -P data/pg19_llama2/ $BASE/pg19_llama2/test.bin \
-     $BASE/pg19_llama2/validation.bin && \
-wget -P data/pg19_llama3/ $BASE/pg19_llama3/test.bin && \
-wget -P data/pg19_qwen3/  $BASE/pg19_qwen3/test.bin
+huggingface-cli download ZengXiangyu/pg19-and-proof-pile \
+    --repo-type dataset \
+    --local-dir ./data \
+    --local-dir-use-symlinks False
 ```
 
-Or individually:
+Or download individually (replace the path for other files):
 
 ```bash
-wget -P data/pg19_llama2/ https://huggingface.co/datasets/ZengXiangyu/pg19/resolve/main/pg19_llama2/test.bin
-wget -P data/pg19_llama2/ https://huggingface.co/datasets/ZengXiangyu/pg19/resolve/main/pg19_llama2/validation.bin
-wget -P data/pg19_llama3/ https://huggingface.co/datasets/ZengXiangyu/pg19/resolve/main/pg19_llama3/test.bin
-wget -P data/pg19_qwen3/  https://huggingface.co/datasets/ZengXiangyu/pg19/resolve/main/pg19_qwen3/test.bin
+# PG-19
+wget -P data/pg19_llama2/ https://huggingface.co/datasets/ZengXiangyu/pg19-and-proof-pile/resolve/main/pg19_llama2/test.bin
+
+# Proof-pile (128 docs sampled from test split, same as LongLoRA)
+wget -P data/proof-pile_qwen3/ https://huggingface.co/datasets/ZengXiangyu/pg19-and-proof-pile/resolve/main/proof-pile_qwen3/test_sampled_data.bin
 ```
 
 <details>
@@ -217,7 +214,7 @@ python3 prepare_eval_data.py \
 | Model               | Train ctx | Steps |  2K   |  4K   |  8K   |  16K  |  32K  |  48K  |
 | :------------------ | :-------: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Qwen3-8B (baseline) |    32K    |   —   | 13.26 | 12.58 | 12.09 | 11.72 | 12.76 | 11.32 |
-| Qwen3-8B-HiCI       |    48K    |  500  | 11.48 | 10.85 | 10.33 | 9.97  | 10.98 | 10.23 |
+| Qwen3-8B-HiCI       |    48K    |  500  | 11.71 | 11.06 | 10.59 | 10.24  | 9.98 | 10.23 |
 | Qwen3-8B-HiCI       |    48K    | 1000  | 11.46 | 10.84 | 10.38 | 10.06  | 9.82 | 9.73 |
 
 See the [paper](https://arxiv.org/abs/2603.20843) for full results including Proof-pile, LongBench, and topic retrieval.
@@ -626,7 +623,7 @@ bash eval_topic_retrieval_predict.sh
 **Option A — Rule-based scoring** (no API key required): `eval_topic_retrieval_score.sh` uses `topic_retrieval_manual_eval.py`, which checks whether the label string appears in the model's output. Fast and reproducible, but simple string matching may occasionally mis-score edge cases — spot-check the raw `.txt` files in `eval_topic_retrieval/` if needed.
 
 ```bash
-bash eval_topic_retrieval_score.sh full
+bash eval_topic_retrieval_score.sh
 ```
 
 **Option B — GPT auto-scoring** (requires OpenAI API key): uses `auto_topic_eval.py` inside LongChat for LLM-based judgement, which handles paraphrases and formatting variations that rule-based matching would miss.

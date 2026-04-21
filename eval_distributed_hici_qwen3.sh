@@ -1,5 +1,5 @@
 # Qwen3-8B HiCI Evaluation on PG19
-# bash eval_distributed_hici_qwen3.sh 2>&1 | tee eval_qwen3_Re/PG19_TEST_EVAL_Qwen3-8b_hici_merged_48k.txt
+# bash eval_distributed_hici_qwen3.sh 2>&1 | tee eval_qwen3_Re/Proof-pile_TEST_EVAL_Qwen3-8b-HiCI-48k-1000steps-merged_2k.txt
 
 module load gcc/12.2.0
 module load cuda/12.5.1
@@ -13,13 +13,15 @@ fuser -k 38493/tcp 2>/dev/null || echo "Port 38493 not in use"
 sleep 2
 pkill -9 -f "eval_distributed_hici_qwen3.py"
 
-BASE_MODEL="./models/Qwen3-8B"
-# BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
-CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k"
+# BASE_MODEL="./models/Qwen3-8B"
+BASE_MODEL="./models/merged/Qwen3-8b-HiCI-48k-merged"
+# Qwen3-8b-HiCI-48k-merged  Qwen3-8b-HiCI-48k-500steps-merged
+CHECKPOINT_PATH="./checkpoints/Qwen3-8b-HiCI-48k-merged"
 nproc_per_node=4
-DATA_PATH="./data/pg19_qwen3/test.bin"  # validation or test
-SEQ_LEN=2048  # 2048 4096 8192 16384 32768 49152
-CONTEXT_SIZE=40960
+# DATA_PATH="./data/pg19_qwen3/test.bin"  # validation or test
+DATA_PATH="./data/proof-pile_qwen3/test_sampled_data.bin" 
+SEQ_LEN=32768  # 2048 4096 8192 16384 32768 40960 49152
+CONTEXT_SIZE=49152
 
 # HiCI configuration (must match training!)
 use_local_constructor=True

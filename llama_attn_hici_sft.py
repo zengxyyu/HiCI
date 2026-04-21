@@ -33,7 +33,7 @@ from transformers.models.llama.modeling_llama import (
 )
 import math
 
-group_size_ratio = 1   # Fraction of tokens per chunk for LocalConstructor
+group_size_ratio = 1 /4  # Fraction of tokens per chunk for LocalConstructor
 sft_group_size = 8192  # Fixed group size for SFT (handles irregular sequence lengths)
 
 

@@ -73,7 +73,7 @@ score_model() {
 # ====================================================
 
 # HiCI / LongLoRA models (use with: full or grouped argument)
-score_model "Llama-2-13b-HiCI-16k-wO-merged_full"
+score_model "Llama-2-13b-hici-16k-none-1000steps-merged_full"
 # score_model "Llama-2-13b-longlora-16k-merged"
 # score_model "Llama-2-13b-HiCI-16k-S2048"
 
