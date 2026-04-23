@@ -214,7 +214,7 @@ python3 prepare_eval_data.py \
 | Model               | Train ctx | Steps |  2K   |  4K   |  8K   |  16K  |  32K  |  48K  |
 | :------------------ | :-------: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Qwen3-8B (baseline) |    32K    |   —   | 13.26 | 12.58 | 12.09 | 11.72 | 12.76 | 11.32 |
-| Qwen3-8B-HiCI       |    48K    |  500  | 11.71 | 11.06 | 10.59 | 10.24  | 9.98 | 10.23 |
+| Qwen3-8B-HiCI       |    48K    |  500  | 11.71 | 11.06 | 10.59 | 10.24  | 9.98 | 9.89 |
 | Qwen3-8B-HiCI       |    48K    | 1000  | 11.46 | 10.84 | 10.38 | 10.06  | 9.82 | 9.73 |
 
 See the [paper](https://arxiv.org/abs/2603.20843) for full results including Proof-pile, LongBench, and topic retrieval.
