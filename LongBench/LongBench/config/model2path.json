@@ -15,5 +15,6 @@
     "hici-7b-sft-16k-yes": "/path/to/merged_models/Llama-2-7b-SFT-hici-2000-s1024-16k-yes-merged",
     "hici-7b-chat-sft-16k-yes": "/path/to/merged_models/Llama-2-7b-chat-SFT-hici-16k-yes-merged",
     "hici-7b-chat-sft-16k-no-5epoch": "/path/to/merged_models/Llama-2-7b-chat-SFT-hici-16k-no-merged-500",
-    "Llama-2-7b-HiCI-16k-SFT-merged-1e": "/home/ubuntu/zxy/HiCI/models/merged/Llama-2-7b-HiCI-16k-SFT-merged"
+    "Llama-2-7b-HiCI-16k-SFT-merged-1e": "/home/ubuntu/zxy/HiCI/models/merged/Llama-2-7b-HiCI-16k-SFT-merged",
+    "Llama-2-7b-HiCI-16k-SFT-merged-2e": "/home/ubuntu/zxy/HiCI/models/sft_models/Llama-2-7b-hici-16k-none-8Gpus-sft-nogroup-2e"
 }

@@ -11,5 +11,6 @@
     "Mistral-Large-Instruct-2407": "mistralai/Mistral-Large-Instruct-2407",
     "Mistral-Large-Instruct-2411": "mistralai/Mistral-Large-Instruct-2411",
     "c4ai-command-r-plus-08-2024": "CohereForAI/c4ai-command-r-plus-08-2024",
-    "glm-4-plus": "THUDM/glm-4-9b-chat"
+    "glm-4-plus": "THUDM/glm-4-9b-chat",
+    "NExtLong-8B-Instruct": "/home/ubuntu/zxy/HiCI/models/Llama-3-8B-NExtLong-512K-Instruct"
 }

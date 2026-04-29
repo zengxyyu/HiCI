@@ -49,8 +49,8 @@ CONFIGS = {
         ],
     },
     "llama2": {
-        "model_name":      "Llama-2-7b-8k-hici-causal_gi-G4",
-        "checkpoint_path": "./checkpoints/Llama-2-7b-8k-hici-causal_gi-G4/checkpoint-2000",
+        "model_name":      "Llama-2-7b-HiCI-16k",
+        "checkpoint_path": "./checkpoints/Llama-2-7b-hici-16k-none-8Gpus/checkpoint-1000",
         "adapter_file":    "adapter_model.bin",
         "lora_files": [
             "adapter_model.bin",    # LoRA weights (.bin format for Llama-2)
@@ -86,7 +86,7 @@ CONFIGS = {
     # Run zero_to_fp32.py + get_trainable_weights.py on the subdir first (see module docstring).
     "llama2_sft": {
         "model_name":      "Llama-2-7b-HiCI-16k-SFT",
-        "checkpoint_path": "./checkpoints/Llama-2-7b-hici-16k-none-8Gpus-sft-nogroup/checkpoint-2000",
+        "checkpoint_path": "./checkpoints/Llama-2-7b-hici-16k-none-8Gpus-sft-nogroup-2e/checkpoint-2000",
         "adapter_file":    "adapter_model.bin",
         "lora_files": [
             "adapter_model.bin",    # LoRA weights (.bin format)
@@ -255,7 +255,7 @@ base_model: meta-llama/Llama-2-7b-hf
 
 ## Model Description
 
-This is a **HiCI adapter checkpoint** for Llama-2-7B, extending its context window to **8K tokens**.
+This is a **HiCI adapter checkpoint** for Llama-2-7B, extending its context window to **16K tokens**.
 It contains three components: LoRA adapters (q/k/v/o\_proj), HiCI module weights (LocalConstructor + GlobalIntegrator),
 and fine-tuned embedding + LayerNorm weights.
 
@@ -266,7 +266,7 @@ Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
 {HICI_ARCH_DESCRIPTION}
 
 ```
-Input (8K tokens) → 4 segments × 2K
+Input (16K tokens) → 4 segments × 4K
   Stage 1: 8 local slots per segment → L_i
   Stage 2: multi-view stats → K=4 global slots G
   Stage 3: Q=[chunk], KV=[G, L_i, chunk] → Flash Attention
@@ -289,15 +289,15 @@ trainable_params.bin  (~2 GB)
 ## Training Details
 
 - **Base Model**: meta-llama/Llama-2-7b-hf
-- **Context Length**: 8,192 tokens (8K)
-- **Segments**: 4 × 2,048 tokens
+- **Context Length**: 16,384 tokens (16K)
+- **Segments**: 4 × 4,096 tokens
 - **Local Representation Slots (M)**: 8 per segment
 - **Global Representation Slots (K)**: 4
-- **HiCI Attention Heads**: 8, Bottleneck dim: 512
+- **HiCI Attention Heads**: 8, Bottleneck dim: 512, Shared compress dim: 128
 - **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
-- **Checkpoint**: step 2000 / 2000
+- **Checkpoint**: step 1000
 - **Batch**: per_device=1, grad_accum=8 (effective batch=8)
-- **LR**: 2e-5 (LoRA), 2e-4 (HiCI modules), grad clip=0.3
+- **LR**: 2e-5 (base/LoRA), 2e-4 (HiCI modules), grad clip=0.3
 - **Precision**: bf16
 - **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
 
@@ -537,7 +537,7 @@ trainable_params.bin  (~2 GB)
 - **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
 - **Checkpoint**: step 2,000
 - **Batch**: per_device=1, grad_accum=8 (effective batch=8)
-- **LR**: 2e-5 (base/LoRA), 1e-4 (HiCI modules), grad clip=0.3
+- **LR**: 2e-5 (base/LoRA), 2e-4 (HiCI modules), grad clip=0.3
 - **Precision**: bf16
 - **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
 

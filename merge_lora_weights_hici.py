@@ -121,8 +121,15 @@ def main(args):
 
     # Step 2: Load base model
     print("\n[2/6] Loading base model...")
+    config = transformers.AutoConfig.from_pretrained(args.base_model, cache_dir=args.cache_dir)
+    orig_ctx_len = getattr(config, "max_position_embeddings", None)
+    if orig_ctx_len and args.context_size > orig_ctx_len:
+        scaling_factor = float(args.context_size) / orig_ctx_len
+        config.rope_scaling = {"type": "linear", "factor": scaling_factor}
+        print(f"  RoPE scaling: factor={scaling_factor} ({orig_ctx_len} → {args.context_size})")
     model = transformers.AutoModelForCausalLM.from_pretrained(
         args.base_model,
+        config=config,
         cache_dir=args.cache_dir,
         torch_dtype=torch.float16,
         device_map="auto",

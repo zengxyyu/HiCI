@@ -15,5 +15,6 @@
     "hici-7b-sft-16k-yes": 15500,
     "hici-7b-chat-sft-16k-yes": 15500,
     "hici-7b-chat-sft-16k-no-5epoch": 15500,
-    "Llama-2-7b-HiCI-16k-SFT-merged-1e": 15500
+    "Llama-2-7b-HiCI-16k-SFT-merged-1e": 15500,
+    "Llama-2-7b-HiCI-16k-SFT-merged-2e": 15500
 }

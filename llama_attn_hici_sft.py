@@ -33,7 +33,7 @@ from transformers.models.llama.modeling_llama import (
 )
 import math
 
-group_size_ratio = 1  # Fraction of tokens per chunk for LocalConstructor
+group_size_ratio = 1/4  # Fraction of tokens per chunk for LocalConstructor
 sft_group_size = 8192  # Fixed group size for SFT (handles irregular sequence lengths)
 
 
@@ -48,7 +48,7 @@ sft_group_size = 8192  # Fixed group size for SFT (handles irregular sequence le
 #
 # False: KV cache = [tokens]
 #        - HiCI slots are not stored in the KV cache after prefill.
-INCLUDE_HICI_IN_KV_CACHE = True
+INCLUDE_HICI_IN_KV_CACHE = False
 
 # Debug switch: disable HiCI during prefill and fall back to standard Flash Attention.
 # Useful for isolating whether issues originate from the inference routing logic.

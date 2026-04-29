@@ -48,6 +48,7 @@ def parse_args(args=None):
             "hici-7b-chat-sft-16k-yes",
             "hici-7b-chat-sft-16k-no-5epoch",
             "Llama-2-7b-HiCI-16k-SFT-merged-1e",
+            "Llama-2-7b-HiCI-16k-SFT-merged-2e",
         ],
     )
     parser.add_argument("--e", action="store_true", help="Evaluate on LongBench-E")
@@ -61,7 +62,7 @@ def parse_args(args=None):
         "--output_suffix",
         type=str,
         default="",
-        help="Suffix to append to output directory name (e.g., '-ori' -> pred/model-ori/)",
+        help="Suffix to append to output directory name (e.g., '_ori' -> pred/model_ori/)",
     )
     return parser.parse_args(args)
 
@@ -252,8 +253,8 @@ def load_model_and_tokenizer(
 
             register_hici_to_model(
                 model,
-                num_local_slots=7,
-                global_slots=5,
+                num_local_slots=8,
+                global_slots=4,
                 num_heads=8,
                 use_bottleneck=True,
                 bottleneck_dim=512,
