@@ -43,11 +43,11 @@ import torch
 
 
 class Pg19Dataset(Dataset):
-    def __init__(self, data_path: str, seq_length: int, sliding_window: int = 256):
+    def __init__(self, data_path: str, seq_length: int, sliding_window: int = 256, data_dtype: str = "uint16"):
         assert seq_length >= sliding_window, f"Sliding window '{sliding_window}' must be smaller than sequence length '{seq_length}'"
 
         self.seq_length = seq_length
-        self.data = np.memmap(data_path, dtype=np.uint16, mode='r')
+        self.data = np.memmap(data_path, dtype=np.dtype(data_dtype), mode='r')
         self.start_indices = list(range(0, len(self.data) - seq_length, sliding_window))
 
         assert len(self) > 0, "Dataset is empty"
@@ -195,7 +195,6 @@ def run_eval(args: EvalArguments):
     random.seed(seed)
     np.random.seed(seed)
 
-    dataset = Pg19Dataset(args.data_path, seq_length=args.seq_len, sliding_window=256)
     if args.flash_attn:
         replace_llama_attn(use_flash_attn=True, use_full=True)
 
@@ -205,6 +204,10 @@ def run_eval(args: EvalArguments):
         cache_dir=args.cache_dir,
         use_cache=False
     )
+
+    # Auto-detect token dtype: Llama-3 uses uint32 (vocab > 65535), Llama-2 uses uint16
+    data_dtype = "uint32" if config.vocab_size > 65535 else "uint16"
+    dataset = Pg19Dataset(args.data_path, seq_length=args.seq_len, sliding_window=256, data_dtype=data_dtype)
 
     context_size = args.context_size if args.context_size > 0 else args.seq_len
     orig_ctx_len = getattr(config, "max_position_embeddings", None)  # this value should be 4096 for LLaMA2 models
@@ -218,12 +221,18 @@ def run_eval(args: EvalArguments):
         config=config,
         cache_dir=args.cache_dir,
         torch_dtype=torch_dtype)
-    model.resize_token_embeddings(32001)
 
     if args.peft_model:
         trainable_params = os.path.join(args.peft_model, "trainable_params.bin")
         if os.path.isfile(trainable_params):
-            model.load_state_dict(torch.load(trainable_params, map_location=model.device), strict=False)
+            # Resize embeddings to match checkpoint (handles Llama-2: 32001, Llama-3: 128258, etc.)
+            ckpt = torch.load(trainable_params, map_location="cpu", weights_only=False)
+            if "model.embed_tokens.weight" in ckpt:
+                target_vocab = ckpt["model.embed_tokens.weight"].shape[0]
+                if target_vocab != model.get_input_embeddings().weight.shape[0]:
+                    model.resize_token_embeddings(target_vocab)
+            model.load_state_dict(ckpt, strict=False)
+            del ckpt
         else:
             raise ValueError("Trainable input embedding and normalization are required.")
         model = PeftModel.from_pretrained(

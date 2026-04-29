@@ -50,6 +50,7 @@ eval_topic_retrieval/
 Train_out_sft/
 eval_llama2-7b_fuxian/
 eval_qwen3_Re/
+eval_llama3-8b_fuxian/
 
 # 保留重要的训练和评估日志
 !training_output*.txt
@@ -59,6 +60,10 @@ eval_qwen3_Re/
 # 允许保留重要的文档txt（requirements.txt等）
 !requirements.txt
 !README*.txt
+
+# Multi-node training scripts (local NCI config, not for publishing)
+submit_hici_llama_multinode.pbs
+train_fine_tune_hici_llama_multinode.sh
 
 # Experimental memory-inject variant (not ready to publish)
 fine-tune_memory_inject_cache_sft.py

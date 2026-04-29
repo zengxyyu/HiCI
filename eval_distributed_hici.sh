@@ -1,19 +1,18 @@
-# bash eval_distributed_hici.sh 2>&1 | tee eval_llama2-7b_fuxian/PG19_TEST_EVAL_Llama-2-7b-hici-16k-none-try-1000k_2k.txt
+# bash eval_distributed_hici.sh 2>&1 | tee eval_llama3-8b_fuxian/PG19_TEST_EVAL_Llama-3-8B-hici-16k-test-1000k_2k_astrain.txt
 
 # Free port
 fuser -k 38493/tcp 2>/dev/null || echo "Port 38493 not in use"
 sleep 2
 pkill -9 -f "eval_distributed_hici.py"
 
-# ./data/pg19/validation.bin   ./data/pg19/test.bin
-# ./data/proof-pile/test_sampled_data.bin
 # BASE_MODEL="./models/Llama-2-7b-hf"
 # BASE_MODEL="./models/Llama-2-13b-hf"
-# BASE_MODEL="./models/Meta-Llama-3-8B"
-BASE_MODEL="./models/merged/Llama-2-7b-hici-16k-none-try-merged"
-CHECKPOINT_PATH="./checkpoints/Llama-2-7b-hici-16k-none-try/checkpoint-1000"
+BASE_MODEL="/scratch/sh89/xz2053/projects/llm-memory/models/Meta-Llama-3-8B"
+# BASE_MODEL="./models/merged/Llama-2-7b-hici-16k-none-try-merged"
+CHECKPOINT_PATH="./checkpoints/Llama-3-8B-hici-16k-test/checkpoint-500"
 nproc_per_node=4
-DATA_PATH="./data/pg19_llama2/test.bin"
+# DATA_PATH="./data/pg19_llama2/test.bin"
+DATA_PATH="./data/pg19_llama3/test.bin"
 SEQ_LEN=2048  # 2048 4096 8192 16384 32768 65536 100000
 CONTEXT_SIZE=16384
 
@@ -28,7 +27,7 @@ bottleneck_dim=512
 shared_compress_dim=128
 
 # Eval mode: None (chunked, same as training) or "full" (full attention, no HiCI)
-eval_mode=full
+eval_mode="full"
 
 # LocalConstructor type
 use_local_constructor_flash=False
@@ -66,6 +65,7 @@ torchrun --nproc_per_node=$nproc_per_node \
     --master_port=38493 \
     eval_distributed_hici.py \
     --base_model $BASE_MODEL \
+    --peft_model $CHECKPOINT_PATH \
     --data_path $DATA_PATH \
     --seq_len $SEQ_LEN \
     --context_size $CONTEXT_SIZE \

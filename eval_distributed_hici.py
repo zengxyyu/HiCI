@@ -271,8 +271,6 @@ class EvalArguments:
 
 
 def run_eval(args: EvalArguments):
-    torch_dtype = torch.float16
-
     seed = 2
     torch.manual_seed(seed)
     random.seed(seed)
@@ -282,11 +280,6 @@ def run_eval(args: EvalArguments):
         # Evaluation modes:
         # - None or "chunked": Chunked HiCI attention (same as training)
         # - "full": Full attention without HiCI (LongLoRA style)
-        # replace_llama_attn(
-        #     use_flash_attn=True,
-        #     use_full=True,
-        #     eval_mode=args.eval_mode
-        #     )
         replace_llama_attn(
             use_flash_attn=True,
             eval_mode=args.eval_mode,
@@ -297,6 +290,13 @@ def run_eval(args: EvalArguments):
     config = transformers.AutoConfig.from_pretrained(
         args.base_model, cache_dir=args.cache_dir, use_cache=False
     )
+
+    # Match eval dtype to the model's native training dtype.
+    # LLaMA-3 / Qwen3 are bfloat16-native; loading them as float16 can cause
+    # overflow for any weight whose magnitude exceeds float16's max (~65504).
+    _cfg_dtype = getattr(config, "torch_dtype", "float16")
+    torch_dtype = torch.bfloat16 if "bfloat16" in str(_cfg_dtype) else torch.float16
+    print(f"📐 Model dtype: {_cfg_dtype} → loading as {torch_dtype}")
 
     # vocab_size > 65535 means token ids don't fit in uint16
     data_dtype = "uint32" if config.vocab_size > 65535 else "uint16"

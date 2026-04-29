@@ -5,15 +5,13 @@
 #   bash eval_chunkdca_pg19.sh qwen3
 #   bash eval_chunkdca_pg19.sh llama3 baseline   # original model, no DCA
 #   bash eval_chunkdca_pg19.sh qwen3  baseline
+# bash eval_chunkdca_pg19.sh llama3 baseline 2>&1 | tee eval_qwen3_Re/Baseline_LLaMA3_PG19_test_fuxian.txt
 
 MODEL_TYPE=${1:-llama3}
 MODE=${2:-dca}          # dca | baseline
 
-source /scratch/iu02/xz2053/hici_env/bin/activate
-cd /scratch/sh89/xz2053/projects/llm-memory
-
 if [ "$MODEL_TYPE" = "llama3" ]; then
-    MODEL_PATH="./models/Meta-Llama-3-8B"
+    MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Meta-Llama-3-8B"
     DATA_PATH="./data/pg19_llama3/test.bin"
     PRETRAINING_LENGTH=8192
     PPL_SCRIPT="ChunkLlama/ppl/test_ppl_distributed.py"
@@ -21,7 +19,6 @@ if [ "$MODEL_TYPE" = "llama3" ]; then
     NGPUS=4
     if [ "$MODE" = "baseline" ]; then
         SEQ_LENS="2048 4096 8192 16384 32768"
-        NGPUS=3
     else
         SEQ_LENS="2048 4096 8192 16384 32768 49152 65536"
     fi
