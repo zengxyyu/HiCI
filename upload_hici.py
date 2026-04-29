@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 """
 Upload HiCI model adapters to HuggingFace.
-Supports: qwen3 (Qwen3-8B HiCI 48K) and llama2 (Llama-2-7B HiCI 8K)
+Supports: qwen3, llama2, llama3, llama2_sft
 
 Usage:
     python upload_hici.py --model qwen3
     python upload_hici.py --model llama2
+    python upload_hici.py --model llama3
+    python upload_hici.py --model llama2_sft
+
+Prerequisites for locally trained checkpoints (run before uploading):
+    cd ./checkpoints/<name>/checkpoint-XXXX
+    python zero_to_fp32.py . .
+    cd -
+    python get_trainable_weights.py \\
+        --checkpoint_path ./checkpoints/<name>/checkpoint-XXXX \\
+        --trainable_params "embed,norm,local_constructor,global_integrator"
+Downloaded HuggingFace adapter weights already include trainable_params.bin.
 """
 
 import argparse
@@ -66,6 +77,27 @@ CONFIGS = {
         "tokenizer_files": [        # tiktoken tokenizer (no tokenizer.model for Llama-3)
             "tokenizer.json",
             "tokenizer_config.json",
+            "special_tokens_map.json",
+        ],
+    },
+    # SFT variant: instruction-following model fine-tuned on LongAlpaca-12k
+    # Resumed from Llama-2-7b-hici-16k-none-8Gpus/checkpoint-1000 (pre-training HiCI ckpt)
+    # Each checkpoint subdir contains its own adapter_model.bin + tokenizer files.
+    # Run zero_to_fp32.py + get_trainable_weights.py on the subdir first (see module docstring).
+    "llama2_sft": {
+        "model_name":      "Llama-2-7b-HiCI-16k-SFT",
+        "checkpoint_path": "./checkpoints/Llama-2-7b-hici-16k-none-8Gpus-sft-nogroup/checkpoint-2000",
+        "adapter_file":    "adapter_model.bin",
+        "lora_files": [
+            "adapter_model.bin",    # LoRA weights (.bin format)
+            "adapter_config.json",  # LoRA config
+            "trainable_params.bin", # embed + norm + local_constructor + global_integrator
+        ],
+        "tokenizer_files": [        # SentencePiece tokenizer (same as Llama-2)
+            "tokenizer.model",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "added_tokens.json",
             "special_tokens_map.json",
         ],
     },
@@ -418,10 +450,149 @@ This model follows the [Meta Llama 3 Community License](https://llama.meta.com/l
 """
 
 
+def create_readme_llama2_sft(model_name):
+    return f"""---
+language:
+- en
+license: llama2
+tags:
+- long-context
+- context-extension
+- hierarchical-attention
+- segmented-attention
+- instruction-following
+- supervised-fine-tuning
+- llama-2
+- peft
+- lora
+- hici
+base_model: meta-llama/Llama-2-7b-hf
+datasets:
+- Yukang/LongAlpaca-12k
+---
+
+# {model_name}
+
+## Model Description
+
+This is a **HiCI instruction-following (SFT) adapter checkpoint** for Llama-2-7B, extending its
+context window to **16K tokens** and fine-tuned on LongAlpaca-12k for instruction following.
+
+It was produced in two stages:
+1. **HiCI pre-training** on RedPajama at 16K context (adapter: `Llama-2-7b-hici-16k-none-8Gpus`)
+2. **Supervised fine-tuning** on [LongAlpaca-12k](https://huggingface.co/datasets/Yukang/LongAlpaca-12k), resuming from the pre-training checkpoint
+
+The adapter contains three components: LoRA adapters (q/k/v/o\\_proj), HiCI module weights
+(LocalConstructor + GlobalIntegrator), and fine-tuned embedding + LayerNorm weights.
+
+Paper: [HiCI (arXiv 2603.20843)](https://arxiv.org/abs/2603.20843)
+
+### HiCI Architecture
+
+{HICI_ARCH_DESCRIPTION}
+
+```
+Input (16K tokens) → 4 segments × 4K
+  Stage 1: 8 local slots per segment → L_i
+  Stage 2: multi-view stats → K=4 global slots G
+  Stage 3: Q=[chunk], KV=[G, L_i, chunk] → Flash Attention
+```
+
+## Trainable Components
+
+```
+adapter_model.bin  (~28 MB)
+└── LoRA Adapters (r=8, alpha=16): q_proj, k_proj, v_proj, o_proj
+
+trainable_params.bin  (~2 GB)
+├── local_constructor.*          — Local Construction modules (32 layers)
+├── global_integrator.*          — Global Integration modules (32 layers)
+├── input_layernorm / post_attention_layernorm — LayerNorm weights (32 layers)
+├── model.embed_tokens.weight    — Token embeddings
+└── model.norm.weight            — Final LayerNorm
+```
+
+## Training Details
+
+### Stage 1 — HiCI Pre-training (continued pre-training)
+
+- **Base Model**: meta-llama/Llama-2-7b-hf
+- **Context Length**: 16,384 tokens (16K)
+- **Dataset**: RedPajama-Data-1T-Sample
+- **Steps**: 1,000
+- **LR**: 2e-5 (base), 2e-4 (HiCI modules)
+- **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
+
+### Stage 2 — SFT (instruction fine-tuning)
+
+- **Base Model**: meta-llama/Llama-2-7b-hf
+- **Resumed from**: Llama-2-7b-hici-16k pre-training checkpoint (step 1000)
+- **Context Length**: 16,384 tokens (16K)
+- **Dataset**: [LongAlpaca-12k](https://huggingface.co/datasets/Yukang/LongAlpaca-12k) (12,000 long-context instruction samples)
+- **Epochs**: 10 (max_steps=2,000)
+- **Segments**: 4 × 4,096 tokens (fixed group size for irregular SFT sequence lengths)
+- **Local Representation Slots (M)**: 8 per segment
+- **Global Representation Slots (K)**: 4
+- **HiCI Attention Heads**: 8, Bottleneck dim: 512, Shared compress dim: 128
+- **LoRA**: r=8, alpha=16, target: q/k/v/o_proj
+- **Checkpoint**: step 2,000
+- **Batch**: per_device=1, grad_accum=8 (effective batch=8)
+- **LR**: 2e-5 (base/LoRA), 1e-4 (HiCI modules), grad clip=0.3
+- **Precision**: bf16
+- **Hardware**: 8× H100 80GB, DeepSpeed Stage 2
+
+## Usage
+
+**Requires `llama_attn_hici.py` from the [HiCI repo](https://github.com/zengxyyu/HiCI).**
+
+```python
+import torch
+import transformers
+from peft import PeftModel
+import llama_attn_hici as hici_attn
+
+# 1. Replace attention with HiCI BEFORE loading model
+hici_attn.MIXED_GROUP_TRAINING = False
+hici_attn.replace_llama_attn(use_flash_attn=True, use_full=False, use_hierarchical_forward=True)
+
+# 2. Load base model
+base_model = transformers.AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-2-7b-hf", torch_dtype=torch.bfloat16, device_map="auto",
+)
+
+# 3. Register HiCI modules (must match training config)
+hici_attn.register_hici_to_model(base_model, num_memory_slots=8, global_slots=4, num_heads=8, bottleneck_dim=512)
+
+# 4. Load LoRA adapter + HiCI weights
+model = PeftModel.from_pretrained(base_model, "{HF_USERNAME}/{model_name}")
+
+# 5. Tokenizer
+tokenizer = transformers.AutoTokenizer.from_pretrained("{HF_USERNAME}/{model_name}")
+
+# 6. Inference — use Llama-2 instruction format
+prompt = "[INST] <<SYS>>\\nYou are a helpful assistant.\\n<</SYS>>\\n\\n{{user_question}} [/INST]"
+inputs = tokenizer(prompt.format(user_question="Summarize the following text: ..."),
+                   return_tensors="pt").to(model.device)
+with torch.no_grad():
+    output = model.generate(**inputs, max_new_tokens=512)
+print(tokenizer.decode(output[0], skip_special_tokens=True))
+```
+
+## Citation
+
+{CITATION}
+
+## License
+
+This model follows the [Llama 2 Community License](https://ai.meta.com/llama/license/).
+"""
+
+
 README_CREATORS = {
-    "qwen3":  create_readme_qwen3,
-    "llama2": create_readme_llama2,
-    "llama3": create_readme_llama3,
+    "qwen3":     create_readme_qwen3,
+    "llama2":    create_readme_llama2,
+    "llama3":    create_readme_llama3,
+    "llama2_sft": create_readme_llama2_sft,
 }
 
 # ====================================================
@@ -505,8 +676,9 @@ def upload(temp_dir, repo_id):
 
 def main():
     parser = argparse.ArgumentParser(description="Upload HiCI model to HuggingFace")
-    parser.add_argument("--model", required=True, choices=["qwen3", "llama2", "llama3"],
-                        help="Which model to upload: qwen3, llama2, or llama3")
+    parser.add_argument("--model", required=True,
+                        choices=["qwen3", "llama2", "llama3", "llama2_sft"],
+                        help="Which model to upload: qwen3, llama2, llama3, or llama2_sft")
     args = parser.parse_args()
 
     cfg = CONFIGS[args.model].copy()

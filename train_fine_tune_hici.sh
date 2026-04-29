@@ -1,15 +1,15 @@
 pkill -9 -f "fine-tune_hici.py"
 # bash train_fine_tune_hici.sh 2>&1 | tee Train_out_baseline/Llama-2-7b-16k-FTM-NEW-84-bothhigher_multi_clip_2e_clean_share_G16.txt
-# bash train_fine_tune_hici.sh 2>&1 | tee Training_out_fuxian/Llama-2-7b-hici-16k-none-try.txt
+# bash train_fine_tune_hici.sh 2>&1 | tee Training_out_fuxian/Llama-2-7b-hici-16k-none-8Gpus.txt
 # 8192 16384 32768 65536  100000 131072  262144
 MODEL_PATH="./models/Llama-2-7b-hf"
 # MODEL_PATH="/scratch/sh89/xz2053/projects/llm-memory/models/Meta-Llama-3-8B"
-OUTPUT_DIR="./checkpoints/Llama-2-7b-hici-16k-none-try"
+OUTPUT_DIR="./checkpoints/Llama-2-7b-hici-16k-none-8Gpus"
 MAX_LENGTH=16384  # 8192 32768 16384 65536 100000 131072 262144
 WARMUP_STEPS=20
 hici_lr=2e-4
-nproc_per_node=4
-gradient_accumulation_steps=16
+nproc_per_node=8
+gradient_accumulation_steps=8
 hici_grad_clip=0.3
 low_rank_training=True  # whether to use low-rank training (LongLoRA)
 

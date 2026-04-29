@@ -3,15 +3,12 @@
 #
 # Two modes (corresponding to paper results):
 #   1. Baseline — standard full attention, no HiCI:
-#      bash run_pred.sh --model <model-name> --ori --suffix "-ori"
+#      bash run_pred.sh --model Llama-2-7b-HiCI-16k-SFT-merged-1e --ori --suffix "-ori"
 #
 #   2. HiCI — HiCI hierarchical attention in prefill (entire sequence as one group, no segmentation):
 #      bash run_pred.sh --model <model-name> --suffix "_hici"
 
-source ~/venv/env/bin/activate
-cd /path/to/LongBench/LongBench
-
-MODEL="hici-7b-chat-sft-16k-no-5epoch"
+MODEL="Llama-2-7b-HiCI-16k-SFT-merged-1e"
 GPUS="0,1"
 SUFFIX=""
 USE_HICI_ATTN="--use_hici_attn"

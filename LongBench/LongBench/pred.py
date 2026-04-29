@@ -47,6 +47,7 @@ def parse_args(args=None):
             "hici-7b-sft-16k-yes",
             "hici-7b-chat-sft-16k-yes",
             "hici-7b-chat-sft-16k-no-5epoch",
+            "Llama-2-7b-HiCI-16k-SFT-merged-1e",
         ],
     )
     parser.add_argument("--e", action="store_true", help="Evaluate on LongBench-E")
@@ -83,7 +84,7 @@ def build_chat(tokenizer, prompt, model_name):
         prompt = f"[INST]{prompt}[/INST]"
     elif "my-sft" in model_name:
         prompt = f"[INST]{prompt}[/INST]"
-    elif "hici" in model_name:
+    elif "hici" in model_name.lower():
         prompt = f"[INST]{prompt}[/INST]"
     elif "xgen" in model_name:
         header = (
@@ -240,7 +241,7 @@ def load_model_and_tokenizer(
         model = LlamaForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16).to(
             device
         )
-    elif "hici" in model_name:
+    elif "hici" in model_name.lower():
         tokenizer = LlamaTokenizer.from_pretrained(path)
 
         if use_hici_attn:
