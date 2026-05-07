@@ -23,10 +23,11 @@ import torch
 import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer, DataCollatorForLanguageModeling
-from llama_attn_hici import (
-    replace_llama_attn,
-    register_hici_to_model,
-)
+from packaging import version as _pkg_version
+if _pkg_version.parse(transformers.__version__) >= _pkg_version.parse("4.40.0"):
+    from llama3_attn_hici import replace_llama_attn, register_hici_to_model
+else:
+    from llama_attn_hici import replace_llama_attn, register_hici_to_model
 from gptneox_attn_replace import replace_gpt_neox_attn
 from peft import LoraConfig, get_peft_model
 from torch.distributed import barrier
@@ -718,6 +719,27 @@ def train():
             task_type="CAUSAL_LM",
         )
         model = get_peft_model(model, config)
+
+        # GQA fix: disabled for ablation — keeping k/v LoRA r=8 same as q/o
+        # base_cfg = model.base_model.model.config
+        # if (hasattr(base_cfg, 'num_key_value_heads') and
+        #         base_cfg.num_key_value_heads < base_cfg.num_attention_heads):
+        #     kv_lora_r = 2
+        #     kv_lora_alpha = 4  # scaling = alpha/r = 2, same as original 16/8=2
+        #     n_reduced = 0
+        #     for name, module in model.named_modules():
+        #         if any(f'.{proj}' in name for proj in ['k_proj', 'v_proj']):
+        #             if hasattr(module, 'lora_A') and 'default' in module.lora_A:
+        #                 if 'local_constructor' in name or 'global_integrator' in name:
+        #                     continue
+        #                 module.update_layer('default', kv_lora_r, kv_lora_alpha, 0.0, True)
+        #                 n_reduced += 1
+        #     if rank == 0:
+        #         print(f"[GQA fix] Reduced k/v LoRA: r=8→{kv_lora_r}, "
+        #               f"alpha=16→{kv_lora_alpha} for {n_reduced} layers "
+        #               f"(num_kv_heads={base_cfg.num_key_value_heads} < "
+        #               f"num_q_heads={base_cfg.num_attention_heads})")
+
         # enable trainable params
         [
             p.requires_grad_()

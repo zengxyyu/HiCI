@@ -1921,15 +1921,11 @@ def forward_flashattn_hierarchical_with_cache(
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
 
-    if position_ids is not None:
-        max_pos = position_ids.max().item() + 1
-        rope_seq_len = max(kv_seq_len, max_pos)
-    else:
-        rope_seq_len = kv_seq_len
-
-    cos, sin = self.rotary_emb(value_states, seq_len=rope_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     # Past Key value support
@@ -2384,15 +2380,11 @@ def forward_flashattn_global_with_cache(
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
 
-    if position_ids is not None:
-        max_pos = position_ids.max().item() + 1
-        rope_seq_len = max(kv_seq_len, max_pos)
-    else:
-        rope_seq_len = kv_seq_len
-
-    cos, sin = self.rotary_emb(value_states, seq_len=rope_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
     # Past Key value support
     if past_key_value is not None:
@@ -2849,9 +2841,11 @@ def forward_flashattn_hierarchical(
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
 
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     # Past Key value support
@@ -3240,9 +3234,11 @@ def forward_flashattn_hierarchical_inference(
         if past_key_value is not None:
             kv_seq_len += past_key_value[0].shape[-2]
 
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        if position_ids is None:
+            position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+        cos, sin = self.rotary_emb(value_states, position_ids)
         query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin, position_ids
+            query_states, key_states, cos, sin
         )
 
         # Prepend past KV cache
@@ -3528,9 +3524,11 @@ def forward_flashattn_hierarchical_inference(
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
 
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     # Past Key value support
@@ -4034,9 +4032,11 @@ def forward_noflashattn_hierarchical(
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
 
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     # Past Key value support
@@ -4409,9 +4409,11 @@ def forward_flashattn_full(
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     if past_key_value is not None:
@@ -4527,9 +4529,11 @@ def forward_noflashattn(
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
         kv_seq_len += past_key_value[0].shape[-2]
-    cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=value_states.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(value_states, position_ids)
     query_states, key_states = apply_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
+        query_states, key_states, cos, sin
     )
 
     if past_key_value is not None:
@@ -4643,18 +4647,6 @@ def _prepare_decoder_attention_mask(
     return attention_mask
 
 
-def apply_rotary_pos_emb_inference(q, k, cos_sin, position_ids):
-    gather_indices = position_ids[:, :, None, None]  # [bsz, seq_len, 1, 1]
-    gather_indices = gather_indices.repeat(
-        1, 1, cos_sin[0].shape[1], cos_sin[0].shape[3]
-    )
-    bsz = gather_indices.shape[0]
-    cos, sin = (
-        torch.gather(x.transpose(1, 2).repeat(bsz, 1, 1, 1), 1, gather_indices)
-        for x in cos_sin
-    )
-    q, k = ((x * cos) + (rotate_half(x) * sin) for x in (q, k))
-    return q, k
 
 
 def forward_flashattn_inference(
@@ -4691,8 +4683,11 @@ def forward_flashattn_inference(
         past_kv_len = past_key_value[0].shape[2]
         kv_seq_len += past_kv_len
 
-    cos_sin = self.rotary_emb(v, seq_len=kv_seq_len)
-    q, k = apply_rotary_pos_emb_inference(q, k, cos_sin, position_ids)
+    if position_ids is None:
+        position_ids = torch.arange(kv_seq_len, device=v.device).unsqueeze(0)
+    cos, sin = self.rotary_emb(v, position_ids)
+    # q, k are (b, s, h, d); unsqueeze_dim=2 broadcasts cos/sin over the heads dim
+    q, k = apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=2)
 
     if past_key_value is not None:
         assert flash_attn_version >= "2.1.0", (
