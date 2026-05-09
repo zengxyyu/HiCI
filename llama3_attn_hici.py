@@ -1630,6 +1630,7 @@ def forward_flashattn_hierarchical_with_cache(
     use_recurrence_cache: bool = False,  # whether to use recurrence cache (Transformer-XL style)
     recurrence_size: Optional[int] = 128,  # recurrence cache size
     # group_size_ratio: Optional[float] = 0.25,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI hierarchical attention with cache support (optimized).
@@ -2227,6 +2228,7 @@ def forward_flashattn_global_with_cache(
     # Parameters controlled directly in this function
     use_recurrence_cache: bool = True,  # whether to use Transformer-XL style recurrence cache
     recurrence_size: Optional[int] = 128,  # size of the recurrence cache
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI Global Context + Recurrence Cache (simplified).
@@ -2585,6 +2587,7 @@ def forward_flashattn_hierarchical(
     # Parameters controlled directly in this function
     use_global_context: bool = True,
     use_local_repr: bool = True,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI hierarchical attention (simplified, no recurrence cache).
@@ -2728,6 +2731,17 @@ def forward_flashattn_hierarchical(
 
     # Reshape into chunks: [bsz, num_groups, group_size, hidden_size]
     chunks = hidden_states.view(bsz, num_groups, group_size, hidden_size)
+
+    # Normalize attention_mask to 2D [bsz, q_len] format required by LocalConstructor.
+    # In transformers 4.40+, _update_causal_mask() replaces _prepare_decoder_attention_mask():
+    #   - Returns None when no padding (SDPA uses is_causal=True internally)
+    #   - Returns 4D [bsz,1,q_len,kv_len] float mask otherwise
+    if attention_mask is None:
+        attention_mask = hidden_states.new_ones(bsz, q_len)
+    elif attention_mask.dim() == 4:
+        # Extract 2D valid-token mask: token i is valid iff mask[b,0,i,i]==0 (not min_dtype)
+        idx = torch.arange(q_len, device=hidden_states.device)
+        attention_mask = (attention_mask[:, 0, idx, idx] == 0.0).to(hidden_states.dtype)
 
     # attention_mask: [bsz, q_len] -> chunk_masks_reshaped: [bsz, num_groups, group_size]
     chunk_masks_reshaped = attention_mask.view(bsz, num_groups, group_size)
@@ -3186,6 +3200,7 @@ def forward_flashattn_hierarchical_inference(
     padding_mask: Optional[torch.LongTensor] = None,
     use_global_context: bool = True,
     use_local_repr: bool = True,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI hierarchical attention for inference (supports arbitrary-length input with padding).
@@ -3830,6 +3845,7 @@ def forward_noflashattn_hierarchical(
     padding_mask: Optional[torch.LongTensor] = None,
     use_global_context: bool = False,
     use_local_repr: bool = False,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """
     HiCI hierarchical attention without Flash Attention (for ablation studies).
@@ -4370,6 +4386,7 @@ def forward_flashattn_full(
     output_attentions: bool = False,
     use_cache: bool = False,
     padding_mask: Optional[torch.LongTensor] = None,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     """Full attention with native GQA support via flash_attn (no repeat_kv).
 
@@ -4472,6 +4489,7 @@ def forward_noflashattn(
     output_attentions: bool = False,
     use_cache: bool = False,
     padding_mask: Optional[torch.LongTensor] = None,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     bsz, q_len, _ = hidden_states.size()
 
@@ -4658,6 +4676,7 @@ def forward_flashattn_inference(
     output_attentions: bool = False,
     use_cache: bool = False,
     padding_mask: Optional[torch.Tensor] = None,
+    **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     if output_attentions:
         warnings.warn(
@@ -4824,6 +4843,16 @@ def replace_llama_attn(
         transformers.models.llama.modeling_llama.LlamaAttention.forward = (
             forward_noflashattn
         )
+
+    # In transformers 4.40+, LlamaAttention has subclasses (LlamaSdpaAttention,
+    # LlamaFlashAttention2) that override forward() independently. Patch them too
+    # so HiCI forward runs regardless of which attn_implementation is selected.
+    _llama = transformers.models.llama.modeling_llama
+    _patched_forward = _llama.LlamaAttention.forward
+    for _cls_name in ("LlamaSdpaAttention", "LlamaFlashAttention2"):
+        _cls = getattr(_llama, _cls_name, None)
+        if _cls is not None:
+            _cls.forward = _patched_forward
 
 
 def register_hici_to_model(
